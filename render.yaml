@@ -3,19 +3,13 @@ services:
     name: simfly-os
     runtime: node
     plan: free
-    buildCommand: |
-      npm install
-      npx puppeteer browsers install chrome
+    buildCommand: npm install
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: "10000"
-      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
-        value: "false"
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/.cache/puppeteer
       - key: GOOGLE_API_KEY
         sync: false
       - key: ADMIN_NUMBER

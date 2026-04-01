@@ -11,28 +11,26 @@ const qrcode = require('qrcode-terminal');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('puppeteer');
+const chromium = require('@sparticuz/chromium');
 
 // ============================================
 // CHROME EXECUTABLE FINDER FOR RENDER
 // ============================================
 async function getChromeExecutablePath() {
-    // First try Puppeteer's bundled Chrome
+    // First try @sparticuz/chromium (designed for Render/AWS Lambda)
     try {
-        const browser = await puppeteer.launch();
-        const executablePath = puppeteer.executablePath();
-        await browser.close();
+        log('Trying @sparticuz/chromium...');
+        const executablePath = await chromium.executablePath();
         if (executablePath && fs.existsSync(executablePath)) {
-            log(`Found Chrome at: ${executablePath}`);
+            log(`Found Chromium via @sparticuz/chromium at: ${executablePath}`);
             return executablePath;
         }
     } catch (e) {
-        log(`Puppeteer bundled Chrome not available: ${e.message}`);
+        log(`@sparticuz/chromium not available: ${e.message}`);
     }
 
     // Try common Linux paths for Chrome/Chromium
     const possiblePaths = [
-        '/opt/render/.cache/puppeteer/chrome/linux-*/chrome-linux/chrome',
         '/usr/bin/chromium-browser',
         '/usr/bin/chromium',
         '/usr/bin/google-chrome',
@@ -41,31 +39,14 @@ async function getChromeExecutablePath() {
         '/usr/lib/chromium/chromium',
         '/usr/local/bin/chromium',
         '/snap/bin/chromium',
+        '/app/.apt/usr/bin/google-chrome',
+        '/app/.apt/usr/bin/chromium-browser',
     ];
 
     for (const chromePath of possiblePaths) {
         if (fs.existsSync(chromePath)) {
             log(`Found Chrome at: ${chromePath}`);
             return chromePath;
-        }
-    }
-
-    // Try to find with glob pattern in puppeteer cache
-    const puppeteerCache = '/opt/render/.cache/puppeteer';
-    if (fs.existsSync(puppeteerCache)) {
-        try {
-            const files = fs.readdirSync(puppeteerCache);
-            for (const file of files) {
-                if (file.startsWith('chrome')) {
-                    const chromePath = path.join(puppeteerCache, file, 'chrome-linux', 'chrome');
-                    if (fs.existsSync(chromePath)) {
-                        log(`Found Chrome in cache: ${chromePath}`);
-                        return chromePath;
-                    }
-                }
-            }
-        } catch (e) {
-            log(`Error searching puppeteer cache: ${e.message}`);
         }
     }
 
@@ -600,8 +581,9 @@ async function initializeWhatsAppClient() {
     }
 
     const puppeteerOptions = {
-        headless: true,
+        headless: chromium.headless,
         args: [
+            ...chromium.args,
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
@@ -611,11 +593,12 @@ async function initializeWhatsAppClient() {
             '--disable-web-security',
             '--disable-features=IsolateOrigins',
             '--disable-site-isolation-trials',
-            '--disable-dev-shm-usage',
             '--no-first-run',
             '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding'
+            '--disable-renderer-backgrounding',
+            '--disable-features=AudioServiceOutOfProcess',
+            '--disable-software-rasterizer'
         ],
         defaultViewport: { width: 1920, height: 1080 },
         dumpio: false
@@ -624,6 +607,8 @@ async function initializeWhatsAppClient() {
     // Add executable path if found
     if (executablePath) {
         puppeteerOptions.executablePath = executablePath;
+    } else {
+        log('Chrome executable path not found, trying default puppeteer...', 'error');
     }
 
     client = new Client({
