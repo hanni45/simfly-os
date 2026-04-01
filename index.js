@@ -532,20 +532,43 @@ const server = app.listen(CONFIG.PORT, () => {
 let client = null;
 
 async function notifyAdmin() {
-    if (!CONFIG.ADMIN_NUMBER || !client) return;
-    const chatId = `${CONFIG.ADMIN_NUMBER}@c.us`;
+    if (!CONFIG.ADMIN_NUMBER || !client) {
+        log('Cannot notify: No admin number or client', 'error');
+        return;
+    }
+
+    // Validate admin number format
+    let adminNum = CONFIG.ADMIN_NUMBER.trim();
+    if (adminNum.startsWith('+')) adminNum = adminNum.substring(1);
+    if (!adminNum.startsWith('92') && adminNum.length === 10) adminNum = '92' + adminNum;
+
+    const chatId = `${adminNum}@c.us`;
     const msg = `✅ SimFly OS Connected!\n\n🤖 AI: ${State.aiProvider}\n🔗 Dashboard: ${CONFIG.RENDER_URL}/dashboard/${State.adminToken}\n📱 Token: ${State.adminToken}`;
 
-    for (let i = 0; i < 3; i++) {
+    log(`Sending admin notification to ${chatId}...`);
+
+    for (let i = 0; i < 5; i++) {
         try {
-            await client.sendMessage(chatId, msg);
-            log('Admin notified');
-            return;
+            // Check if client is ready
+            if (!client.info && !client.pupPage) {
+                log(`Client not fully ready, waiting... (attempt ${i+1})`);
+                await new Promise(r => setTimeout(r, 3000));
+                continue;
+            }
+
+            const sent = await client.sendMessage(chatId, msg);
+            if (sent) {
+                log(`✅ Admin notified successfully! Message ID: ${sent.id?.id}`);
+                return true;
+            }
         } catch (e) {
-            log(`Notify attempt ${i+1} failed`, 'error');
-            await new Promise(r => setTimeout(r, 2000));
+            log(`Notify attempt ${i+1} failed: ${e.message}`, 'error');
+            if (i < 4) await new Promise(r => setTimeout(r, 2000));
         }
     }
+
+    log('All admin notification attempts failed', 'error');
+    return false;
 }
 
 async function onReady() {
@@ -555,7 +578,20 @@ async function onReady() {
     State.clientState = 'READY';
     State.qrCodeData = null;
     State.adminToken = Math.random().toString(36).substring(2, 10).toUpperCase();
-    await notifyAdmin();
+
+    // Delay before sending notification to ensure client is fully ready
+    log('Waiting 5 seconds for client to stabilize before sending admin notification...');
+    await new Promise(r => setTimeout(r, 5000));
+
+    const notified = await notifyAdmin();
+
+    if (!notified) {
+        log('Initial notification failed, will retry in 30 seconds...', 'error');
+        setTimeout(async () => {
+            log('Retrying admin notification...');
+            await notifyAdmin();
+        }, 30000);
+    }
 }
 
 async function getChromePath() {
@@ -607,14 +643,18 @@ async function initWhatsApp() {
     });
 
     client.on('ready', async () => {
-        log('Event: ready');
-        await onReady();
+        log('Event: ready fired');
+        // Add delay to ensure client is fully initialized
+        setTimeout(() => onReady(), 3000);
     });
 
     client.on('change_state', (s) => {
-        log(`State: ${s}`);
+        log(`State changed: ${s}`);
         State.clientState = s;
-        if (s === 'OPEN' && !State.isReady) setTimeout(onReady, 2000);
+        if (s === 'OPEN' && !State.isReady) {
+            log('State is OPEN, will mark ready in 5 seconds...');
+            setTimeout(() => onReady(), 5000);
+        }
     });
 
     client.on('message_create', async (msg) => {
