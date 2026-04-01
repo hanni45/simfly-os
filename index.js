@@ -562,6 +562,56 @@ When someone sends a screenshot, acknowledge receipt politely.`;
 // WHATSAPP CLIENT SETUP (ASYNC)
 // ============================================
 let client = null;
+let messageHandlerAttached = false;
+
+// Helper to send admin notification with retry
+async function sendAdminNotification(retries = 3) {
+    if (!CONFIG.ADMIN_NUMBER) {
+        log('WARNING: ADMIN_NUMBER not set - no notification sent', 'error');
+        return;
+    }
+
+    const adminChatId = `${CONFIG.ADMIN_NUMBER}@c.us`;
+    const dashboardUrl = `${CONFIG.RENDER_URL}/dashboard/${DashboardState.adminToken}`;
+    const notificationMessage = `SimFly OS Live! 🚀\n\nDashboard Token: ${DashboardState.adminToken}\nAccess: ${dashboardUrl}\n\nBot is ready for sales! 💰`;
+
+    for (let i = 0; i < retries; i++) {
+        try {
+            log(`Attempt ${i + 1}/${retries}: Sending admin notification to ${CONFIG.ADMIN_NUMBER}...`);
+            await client.sendMessage(adminChatId, notificationMessage);
+            log(`Admin notification sent successfully to ${CONFIG.ADMIN_NUMBER}`);
+            return;
+        } catch (error) {
+            log(`Attempt ${i + 1} failed: ${error.message}`, 'error');
+            if (i < retries - 1) {
+                log('Retrying in 2 seconds...');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } else {
+                log('All retry attempts failed for admin notification', 'error');
+            }
+        }
+    }
+}
+
+// Handle bot ready state
+async function onBotReady() {
+    if (DashboardState.isReady) {
+        log('Bot already ready, skipping duplicate ready handler');
+        return;
+    }
+
+    log('SimFly OS Bot is READY!');
+    DashboardState.isReady = true;
+    DashboardState.clientState = 'READY';
+    DashboardState.qrCodeData = null;
+
+    // Generate admin token
+    DashboardState.adminToken = generateAdminToken();
+    log(`Admin Dashboard Token: ${DashboardState.adminToken}`);
+
+    // Send notification to admin with retry
+    await sendAdminNotification();
+}
 
 async function initializeWhatsAppClient() {
     // Ensure auth directory exists
@@ -622,8 +672,10 @@ async function initializeWhatsAppClient() {
     });
 
     // ============================================
-    // WHATSAPP EVENT HANDLERS
+    // WHATSAPP EVENT HANDLERS - REGISTER BEFORE INITIALIZE
     // ============================================
+
+    // QR Code generated
     client.on('qr', (qr) => {
         DashboardState.qrGenerated = true;
         DashboardState.qrCodeData = qr;
@@ -641,61 +693,77 @@ async function initializeWhatsAppClient() {
         console.log('='.repeat(60) + '\n');
     });
 
+    // Authentication successful
     client.on('authenticated', () => {
         log('WhatsApp authenticated successfully');
         DashboardState.clientState = 'AUTHENTICATED';
     });
 
+    // Authentication failed
     client.on('auth_failure', (msg) => {
         log(`Authentication failure: ${msg}`, 'error');
         DashboardState.clientState = 'AUTH_FAILED';
     });
 
+    // Client is ready to use
     client.on('ready', async () => {
-        log('SimFly OS Bot is READY!');
-        DashboardState.isReady = true;
-        DashboardState.clientState = 'READY';
-        DashboardState.qrCodeData = null;
+        log('Event: ready fired');
+        await onBotReady();
+    });
 
-        // Generate admin token
-        DashboardState.adminToken = generateAdminToken();
-        log(`Admin Dashboard Token: ${DashboardState.adminToken}`);
+    // State change tracker
+    client.on('change_state', (state) => {
+        log(`WhatsApp state changed to: ${state}`);
+        DashboardState.clientState = state.toUpperCase();
 
-        // Send notification to admin
-        if (CONFIG.ADMIN_NUMBER) {
-            const adminChatId = `${CONFIG.ADMIN_NUMBER}@c.us`;
-            const dashboardUrl = `${CONFIG.RENDER_URL}/dashboard/${DashboardState.adminToken}`;
-            const notificationMessage = `SimFly OS Live! 🚀\n\nDashboard Token: ${DashboardState.adminToken}\nAccess: ${dashboardUrl}\n\nBot is ready for sales! 💰`;
-
-            try {
-                await client.sendMessage(adminChatId, notificationMessage);
-                log(`Admin notification sent to ${CONFIG.ADMIN_NUMBER}`);
-            } catch (error) {
-                log(`Failed to send admin notification: ${error.message}`, 'error');
-            }
-        } else {
-            log('WARNING: ADMIN_NUMBER not set - no notification sent', 'error');
+        // If state becomes OPEN, trigger ready check
+        if (state === 'OPEN' && !DashboardState.isReady) {
+            log('State is OPEN but not marked ready, triggering ready handler...');
+            setTimeout(() => onBotReady(), 2000);
         }
     });
 
+    // Message received (incoming only) - PRIMARY HANDLER
     client.on('message_create', async (msg) => {
-        // Only handle incoming messages (not from self)
-        if (msg.fromMe) return;
-        await handleMessage(msg);
+        try {
+            // Only handle incoming messages (not from self)
+            if (msg.fromMe) return;
+            log(`Message received from ${msg.from}: ${msg.body?.substring(0, 50)}...`);
+            await handleMessage(msg);
+        } catch (error) {
+            log(`Error in message_create handler: ${error.message}`, 'error');
+        }
     });
 
+    // Backup message handler
+    client.on('message', async (msg) => {
+        try {
+            if (msg.fromMe) return;
+            if (!messageHandlerAttached) {
+                log(`Backup handler: Message from ${msg.from}`);
+                await handleMessage(msg);
+            }
+        } catch (error) {
+            log(`Error in backup message handler: ${error.message}`, 'error');
+        }
+    });
+
+    // Client disconnected
     client.on('disconnected', (reason) => {
         log(`WhatsApp disconnected: ${reason}`);
         DashboardState.isReady = false;
         DashboardState.qrGenerated = false;
         DashboardState.clientState = 'DISCONNECTED';
+        messageHandlerAttached = false;
     });
 
+    // Loading screen updates
     client.on('loading_screen', (percent, message) => {
         log(`WhatsApp loading: ${percent}% - ${message}`);
         DashboardState.clientState = 'LOADING';
     });
 
+    // Error handler
     client.on('error', (error) => {
         log(`WhatsApp client error: ${error.message}`, 'error');
         DashboardState.clientState = 'ERROR';
@@ -703,8 +771,20 @@ async function initializeWhatsAppClient() {
 
     // Initialize client
     log('Initializing WhatsApp client...');
+    messageHandlerAttached = true;
+
     try {
         await client.initialize();
+        log('Client.initialize() completed');
+
+        // Fallback: If authenticated but not ready after 10 seconds, trigger ready manually
+        setTimeout(() => {
+            if (!DashboardState.isReady && DashboardState.clientState === 'AUTHENTICATED') {
+                log('Auto-triggering ready state after timeout...');
+                onBotReady();
+            }
+        }, 10000);
+
     } catch (error) {
         log(`Failed to initialize WhatsApp client: ${error.message}`, 'error');
         throw error;
