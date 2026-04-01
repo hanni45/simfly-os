@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: simfly-os
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: ADMIN_NUMBER
+        sync: false
+      - key: RENDER_URL
+        sync: false
+    autoDeploy: true
