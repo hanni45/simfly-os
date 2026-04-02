@@ -252,34 +252,85 @@ async function generateResponse(userMsg) {
 }
 
 // ============================================
-// MESSAGE HANDLER WITH DELIVERY CONFIRMATION
+// MESSAGE HANDLER WITH TYPING INDICATOR
 // ============================================
+const processedMessages = new Set();
+const messageQueue = new Map();
+
 async function handleMessage(message) {
     const chatId = message.from;
+
+    // Skip groups and status
     if (chatId.endsWith('@g.us') || chatId === 'status@broadcast') return;
+
+    // DEDUPLICATION: Skip if already processed
+    const msgId = message.id?._serialized || `${chatId}-${message.timestamp}`;
+    if (processedMessages.has(msgId)) {
+        log(`⏩ Duplicate message skipped: ${msgId.slice(-15)}`);
+        return;
+    }
+    processedMessages.add(msgId);
+
+    // Clean up old message IDs (keep last 100)
+    if (processedMessages.size > 100) {
+        const iterator = processedMessages.values();
+        processedMessages.delete(iterator.next().value);
+    }
 
     log(`📩 From ${chatId}: "${message.body?.substring(0, 40)}..."`);
     State.totalMessages++;
 
     // Track conversation
     if (!State.conversations.has(chatId)) {
-        State.conversations.set(chatId, { startedAt: Date.now(), count: 0, lastMsg: '' });
+        State.conversations.set(chatId, { startedAt: Date.now(), count: 0, lastMsg: '', processing: false });
     }
     const conv = State.conversations.get(chatId);
     conv.count++;
     conv.lastMsg = message.body;
 
+    // QUEUE messages per chat to prevent race conditions
+    if (!messageQueue.has(chatId)) {
+        messageQueue.set(chatId, []);
+    }
+    messageQueue.get(chatId).push(message);
+
+    // Process queue
+    await processMessageQueue(chatId, conv);
+}
+
+async function processMessageQueue(chatId, conv) {
+    const queue = messageQueue.get(chatId);
+    if (!queue || queue.length === 0 || conv.processing) return;
+
+    conv.processing = true;
+
+    while (queue.length > 0) {
+        const message = queue.shift();
+        await processSingleMessage(message, chatId, conv);
+    }
+
+    conv.processing = false;
+}
+
+async function processSingleMessage(message, chatId, conv) {
     try {
         let reply = '';
+        const chat = await message.getChat();
 
         if (message.hasMedia) {
             log('📸 Screenshot received');
             reply = TEMPLATES.screenshot;
             State.totalOrders++;
         } else {
-            // Add delay for mobile users
+            // Show typing indicator
+            await chat.sendStateTyping();
+
+            // Generate response with delay
             await new Promise(r => setTimeout(r, State.settings.responseDelay));
             reply = await generateResponse(message.body || '');
+
+            // Stop typing before sending
+            await chat.clearState();
         }
 
         if (reply) {
@@ -901,15 +952,13 @@ async function initWhatsApp() {
         }
     });
 
-    client.on('message_create', async (msg) => {
-        if (msg.fromMe) return;
-        // Small delay for mobile users
-        await new Promise(r => setTimeout(r, 500));
-        await handleMessage(msg);
-    });
-
+    // SINGLE message handler - no duplicates
     client.on('message', async (msg) => {
         if (msg.fromMe) return;
+        if (!msg.body && !msg.hasMedia) return; // Skip empty messages
+
+        // Small delay to ensure message is fully processed
+        await new Promise(r => setTimeout(r, 300));
         await handleMessage(msg);
     });
 
