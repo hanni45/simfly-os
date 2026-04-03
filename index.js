@@ -931,6 +931,9 @@ app.get('/setup', (req, res) => {
         const pairingCodeDisplay = document.getElementById('pairingCodeDisplay');
         const pairingCodeValue = document.getElementById('pairingCodeValue');
         const getCodeBtn = document.getElementById('getCodeBtn');
+        const sessionInput = document.getElementById('sessionInput');
+        const sessionError = document.getElementById('sessionError');
+        const sessionSuccess = document.getElementById('sessionSuccess');
 
         let currentQR = null;
         let checkInterval = null;
