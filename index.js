@@ -371,7 +371,7 @@ app.get('/setup', (req, res) => {
         @keyframes dots {
             0%, 20% { content: '.'; }
             40% { content: '..'; }
-            60% { 100% { content: '...'; } }
+            60%, 100% { content: '...'; }
         }
 
         /* Alternative Link Options */
@@ -857,7 +857,7 @@ app.get('/setup', (req, res) => {
                 if (data.success) {
                     pairingCodeValue.textContent = data.code;
                     pairingCodeDisplay.style.display = 'block';
-                    logActivity(`Pairing code generated for ${phoneNumber}`);
+                    logActivity('Pairing code generated for ' + phoneNumber);
                 } else {
                     phoneError.textContent = data.error || 'Failed to generate code. Please try again.';
                     phoneError.style.display = 'block';
@@ -888,7 +888,7 @@ app.get('/setup', (req, res) => {
             // Update logs
             if (data.logs && data.logs.length > 0) {
                 logsList.innerHTML = data.logs.map(log => {
-                    return \`<div class="log-entry"><span class="log-time">\${log.time || '--:--:--'}</span> \${log.msg}</div>\`;
+                    return '<div class="log-entry"><span class="log-time">' + (log.time || '--:--:--') + '</span> ' + log.msg + '</div>';
                 }).join('');
                 logsList.scrollTop = 0;
             }
