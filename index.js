@@ -233,16 +233,26 @@ app.get('/', (req, res) => {
 
 // API: Get Status
 app.get('/api/status', (req, res) => {
-    res.json({
-        state: State.clientState,
-        ready: State.isReady,
-        qrGenerated: !!State.qrData,
-        qrData: State.qrData,
-        pairingCode: State.pairingCode,
-        pairingNumber: State.pairingNumber,
-        stats: State.stats,
-        logs: State.logs.slice(0, 10)
-    });
+    try {
+        res.json({
+            state: State.clientState,
+            ready: State.isReady,
+            qrGenerated: !!State.qrData,
+            qrData: State.qrData,
+            pairingCode: State.pairingCode,
+            pairingNumber: State.pairingNumber,
+            stats: State.stats,
+            logs: State.logs.slice(0, 10),
+            serverTime: new Date().toISOString()
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Debug endpoint
+app.get('/ping', (req, res) => {
+    res.json({ ok: true, time: Date.now(), state: State.clientState });
 });
 
 // ============================================
@@ -1165,18 +1175,21 @@ app.get('/setup', (req, res) => {
         let retryCount = 0;
         async function checkStatus() {
             try {
-                const res = await fetch('/api/status');
+                const res = await fetch('/api/status?_=' + Date.now()); // Cache buster
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
+                console.log('Status fetched:', data);
                 updateUI(data);
                 retryCount = 0;
             } catch (e) {
                 retryCount++;
-                console.error('Failed to fetch status (attempt ' + retryCount + '):', e);
-                // Show error in logs
+                console.error('Failed to fetch status (attempt ' + retryCount + '):', e.message);
+                // Show error in logs with more detail
+                const errorMsg = e.message || 'Connection failed';
                 const errorEntry = document.createElement('div');
                 errorEntry.className = 'log-entry';
-                errorEntry.innerHTML = '<span class="log-time">' + new Date().toLocaleTimeString() + '</span> Connection error... retrying';
+                errorEntry.style.color = '#e74c3c';
+                errorEntry.innerHTML = '<span class="log-time">' + new Date().toLocaleTimeString() + '</span> Error: ' + errorMsg + ' (retry ' + retryCount + ')';
                 if (logsList.children.length > 20) logsList.removeChild(logsList.lastChild);
                 logsList.insertBefore(errorEntry, logsList.firstChild);
             }
