@@ -116,6 +116,7 @@ const State = {
     totalOrders: 0,
     conversations: new Map(),
     adminToken: null,
+    loginCode: null,        // 8-digit numeric code for easy login
     isReady: false,
     qrGenerated: false,
     qrCodeData: null,
@@ -127,7 +128,7 @@ const State = {
         autoReply: true,
         sendNotifications: true,
         debugMode: false,
-        responseDelay: 800 // Reduced for faster response
+        responseDelay: 800
     },
     messageQueue: [],
     lastError: null,
@@ -138,6 +139,10 @@ const State = {
         connectedAt: null
     }
 };
+
+// Active login sessions (code -> expiry)
+const activeSessions = new Map();
+const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
 // MEMORY LIMITS
 const MEMORY_CONFIG = {
@@ -555,6 +560,409 @@ app.post('/api/reconnect', async (req, res) => {
     }
 });
 
+// ============================================
+// 8-DIGIT CODE LOGIN SYSTEM
+// ============================================
+
+// API - Verify 8-digit code
+app.post('/api/login/verify', (req, res) => {
+    const { code } = req.body;
+
+    if (!code || !/^\d{8}$/.test(code)) {
+        return res.json({ success: false, error: 'Please enter valid 8-digit code' });
+    }
+
+    // Check if code matches current login code
+    if (code === State.loginCode) {
+        const expiry = activeSessions.get(code);
+        if (expiry && expiry > Date.now()) {
+            return res.json({
+                success: true,
+                token: State.adminToken,
+                redirectUrl: `${CONFIG.RENDER_URL}/dashboard/${State.adminToken}`
+            });
+        } else {
+            return res.json({ success: false, error: 'Code expired. Please check latest code.' });
+        }
+    }
+
+    // Check if code is an old but valid session
+    const expiry = activeSessions.get(code);
+    if (expiry && expiry > Date.now()) {
+        return res.json({
+            success: true,
+            token: State.adminToken,
+            redirectUrl: `${CONFIG.RENDER_URL}/dashboard/${State.adminToken}`,
+            message: 'Welcome back!'
+        });
+    }
+
+    res.json({ success: false, error: 'Invalid code. Please check your WhatsApp message.' });
+});
+
+// Login Page with 8-digit Code Entry
+app.get('/login', (req, res) => {
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimFly OS - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #e94560;
+            --secondary: #00d9ff;
+            --success: #2ed573;
+            --bg-dark: #1a1a2e;
+            --bg-darker: #16213e;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, var(--bg-darker) 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 24px;
+            padding: 40px 30px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+        }
+        .logo {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        .title {
+            font-size: 1.8rem;
+            background: linear-gradient(45deg, var(--primary), #ff6b6b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .subtitle {
+            color: #888;
+            font-size: 0.95rem;
+            margin-bottom: 30px;
+        }
+        .code-inputs {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin: 30px 0;
+        }
+        .code-input {
+            width: 42px;
+            height: 52px;
+            background: rgba(255,255,255,0.1);
+            border: 2px solid rgba(255,255,255,0.2);
+            border-radius: 12px;
+            color: #fff;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        .code-input:focus {
+            outline: none;
+            border-color: var(--secondary);
+            background: rgba(0,217,255,0.1);
+            transform: scale(1.05);
+        }
+        .code-input.filled {
+            border-color: var(--success);
+            background: rgba(46,213,115,0.1);
+        }
+        .login-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(45deg, var(--primary), #ff6b6b);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 20px;
+        }
+        .login-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(233,69,96,0.4);
+        }
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .error-msg {
+            color: #ff4757;
+            font-size: 0.9rem;
+            margin-top: 15px;
+            min-height: 20px;
+        }
+        .success-msg {
+            color: var(--success);
+            font-size: 0.9rem;
+            margin-top: 15px;
+        }
+        .help-text {
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .help-text strong {
+            color: var(--secondary);
+        }
+        .loader {
+            display: none;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(46,213,115,0.1);
+            border: 1px solid rgba(46,213,115,0.3);
+            border-radius: 20px;
+            color: var(--success);
+            font-size: 0.85rem;
+            margin-bottom: 20px;
+        }
+        .status-indicator.offline {
+            background: rgba(255,71,87,0.1);
+            border-color: rgba(255,71,87,0.3);
+            color: #ff4757;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: currentColor;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .paste-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+            transition: all 0.3s;
+        }
+        .paste-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">🤖</div>
+        <h1 class="title">SimFly OS</h1>
+        <p class="subtitle">Enter 8-Digit Access Code</p>
+
+        <div id="statusIndicator" class="status-indicator ${State.isReady ? '' : 'offline'}">
+            <span class="dot"></span>
+            <span>${State.isReady ? 'Bot Online' : 'Bot Offline'}</span>
+        </div>
+
+        <button class="paste-btn" onclick="pasteCode()">📋 Paste Code</button>
+
+        <div class="code-inputs" id="codeInputs">
+            <input type="text" class="code-input" maxlength="1" data-index="0">
+            <input type="text" class="code-input" maxlength="1" data-index="1">
+            <input type="text" class="code-input" maxlength="1" data-index="2">
+            <input type="text" class="code-input" maxlength="1" data-index="3">
+            <input type="text" class="code-input" maxlength="1" data-index="4">
+            <input type="text" class="code-input" maxlength="1" data-index="5">
+            <input type="text" class="code-input" maxlength="1" data-index="6">
+            <input type="text" class="code-input" maxlength="1" data-index="7">
+        </div>
+
+        <input type="hidden" id="fullCode" value="">
+
+        <button class="login-btn" id="loginBtn" onclick="verifyCode()">
+            <span id="btnText">🔓 Access Dashboard</span>
+            <div class="loader" id="btnLoader"></div>
+        </button>
+
+        <div id="message" class="error-msg"></div>
+
+        <div class="help-text">
+            💡 Code sent to admin WhatsApp <strong>${State.loginCode ? '••••' + State.loginCode.slice(-4) : 'XXXX'}</strong><br>
+            Valid for 24 hours
+        </div>
+    </div>
+
+    <script>
+        const inputs = document.querySelectorAll('.code-input');
+        const fullCodeInput = document.getElementById('fullCode');
+        const loginBtn = document.getElementById('loginBtn');
+        const btnText = document.getElementById('btnText');
+        const btnLoader = document.getElementById('btnLoader');
+        const message = document.getElementById('message');
+
+        // Setup input handling
+        inputs.forEach((input, index) => {
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace') {
+                    if (input.value === '' && index > 0) {
+                        inputs[index - 1].focus();
+                    }
+                }
+            });
+
+            input.addEventListener('input', (e) => {
+                const val = e.target.value;
+
+                // Only allow numbers
+                if (!/^\d*$/.test(val)) {
+                    input.value = '';
+                    return;
+                }
+
+                if (val.length === 1) {
+                    input.classList.add('filled');
+                    // Auto-focus next
+                    if (index < 7) {
+                        inputs[index + 1].focus();
+                    }
+                } else if (val.length === 0) {
+                    input.classList.remove('filled');
+                }
+
+                updateFullCode();
+            });
+
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const pasteData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 8);
+
+                if (pasteData.length > 0) {
+                    pasteData.split('').forEach((char, i) => {
+                        if (i < 8) {
+                            inputs[i].value = char;
+                            inputs[i].classList.add('filled');
+                        }
+                    });
+
+                    // Focus last filled or next empty
+                    const focusIndex = Math.min(pasteData.length, 7);
+                    inputs[focusIndex].focus();
+                    updateFullCode();
+                }
+            });
+        });
+
+        function updateFullCode() {
+            const code = Array.from(inputs).map(i => i.value).join('');
+            fullCodeInput.value = code;
+
+            // Auto-submit when 8 digits entered
+            if (code.length === 8) {
+                setTimeout(() => verifyCode(), 300);
+            }
+        }
+
+        async function pasteCode() {
+            try {
+                const text = await navigator.clipboard.readText();
+                const cleanCode = text.replace(/\D/g, '').slice(0, 8);
+
+                if (cleanCode.length === 8) {
+                    cleanCode.split('').forEach((char, i) => {
+                        inputs[i].value = char;
+                        inputs[i].classList.add('filled');
+                    });
+                    updateFullCode();
+                    message.textContent = '';
+                } else {
+                    message.textContent = 'Clipboard does not contain valid 8-digit code';
+                    message.className = 'error-msg';
+                }
+            } catch (e) {
+                message.textContent = 'Cannot access clipboard. Please paste manually.';
+                message.className = 'error-msg';
+            }
+        }
+
+        async function verifyCode() {
+            const code = fullCodeInput.value;
+
+            if (code.length !== 8) {
+                message.textContent = 'Please enter all 8 digits';
+                message.className = 'error-msg';
+                return;
+            }
+
+            // Show loading
+            btnText.style.display = 'none';
+            btnLoader.style.display = 'block';
+            loginBtn.disabled = true;
+            message.textContent = '';
+
+            try {
+                const res = await fetch('/api/login/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code })
+                });
+
+                const data = await res.json();
+
+                if (data.success) {
+                    message.textContent = 'Success! Redirecting...';
+                    message.className = 'success-msg';
+                    setTimeout(() => {
+                        window.location.href = data.redirectUrl;
+                    }, 800);
+                } else {
+                    message.textContent = data.error || 'Invalid code';
+                    message.className = 'error-msg';
+                    btnText.style.display = 'inline';
+                    btnLoader.style.display = 'none';
+                    loginBtn.disabled = false;
+                }
+            } catch (e) {
+                message.textContent = 'Network error. Please try again.';
+                message.className = 'error-msg';
+                btnText.style.display = 'inline';
+                btnLoader.style.display = 'none';
+                loginBtn.disabled = false;
+            }
+        }
+
+        // Focus first input on load
+        inputs[0].focus();
+    </script>
+</body>
+</html>`;
+    res.send(html);
+});
+
 // Setup Page with Real-time Updates
 app.get('/setup', (req, res) => {
     const html = `<!DOCTYPE html>
@@ -809,11 +1217,16 @@ app.get('/setup', (req, res) => {
         <!-- Token Section -->
         <div id="tokenSection" class="token-section">
             <div class="success-icon">🎉</div>
-            <div class="token-label">Dashboard Access Token</div>
-            <div id="tokenDisplay" class="token-display">-</div>
+            <div class="token-label">8-Digit Access Code</div>
+            <div id="codeDisplay" class="token-display" style="color:#2ed573;letter-spacing:8px;">-</div>
+            <div style="color:#888;font-size:0.85rem;margin:10px 0;">Or use full token</div>
+            <div id="tokenDisplay" class="token-display" style="font-size:1rem;padding:10px 15px;">-</div>
             <a id="dashboardLink" href="#" class="btn-dashboard">
                 <span>🚀</span> Open Dashboard
             </a>
+            <div style="margin-top:15px;">
+                <a href="/login" style="color:#00d9ff;text-decoration:none;font-size:0.9rem;">🔑 Login with Code →</a>
+            </div>
         </div>
 
         <!-- Stats Grid -->
@@ -916,10 +1329,13 @@ app.get('/setup', (req, res) => {
                 qrSection.classList.remove('active');
                 tokenSection.classList.add('active');
 
-                // Update token
+                // Update code and token
+                if (data.loginCode) {
+                    document.getElementById('codeDisplay').textContent = data.loginCode;
+                    document.getElementById('dashboardLink').href = '${CONFIG.RENDER_URL}/dashboard/' + data.loginCode;
+                }
                 if (data.adminToken) {
                     document.getElementById('tokenDisplay').textContent = data.adminToken;
-                    document.getElementById('dashboardLink').href = '${CONFIG.RENDER_URL}/dashboard/' + data.adminToken;
                 }
 
                 // Stop refreshing
@@ -989,8 +1405,15 @@ app.get('/setup', (req, res) => {
 
 // Dashboard with Full Settings
 app.get('/dashboard/:token', (req, res) => {
-    if (!State.adminToken || req.params.token !== State.adminToken) {
-        return res.status(403).send('403 - Access Denied');
+    const provided = req.params.token;
+
+    // Check token OR 8-digit code
+    const isTokenValid = State.adminToken && provided === State.adminToken;
+    const isCodeValid = State.loginCode && provided === State.loginCode;
+    const isOldCodeValid = activeSessions.has(provided) && activeSessions.get(provided) > Date.now();
+
+    if (!isTokenValid && !isCodeValid && !isOldCodeValid) {
+        return res.status(403).send('<!DOCTYPE html><html><head><style>body{background:#1a1a2e;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;}</style></head><body><div><h1>🔒 Access Denied</h1><p>Invalid token or expired code.</p><br><a href="/login" style="color:#00d9ff;text-decoration:none;">← Go to Login</a></div></body></html>');
     }
 
     const mem = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
@@ -1278,7 +1701,7 @@ async function sendAdminNotification() {
 
     const chatId = `${adminNum}@c.us`;
     const sessionInfo = State.sessionId ? `\n📱 Session: ${State.sessionId.slice(-8)}` : '';
-    const msg = `✅ SimFly OS Connected!${sessionInfo}\n\n🤖 AI: ${State.aiProvider}\n💬 Messages: ${State.totalMessages}\n📦 Orders: ${State.totalOrders}\n\n🔗 Dashboard:\n${CONFIG.RENDER_URL}/dashboard/${State.adminToken}\n\n📱 Token: ${State.adminToken}`;
+    const msg = `✅ SimFly OS Connected!${sessionInfo}\n\n🤖 AI: ${State.aiProvider}\n💬 Messages: ${State.totalMessages}\n📦 Orders: ${State.totalOrders}\n\n🔗 Dashboard:\n${CONFIG.RENDER_URL}/dashboard/${State.adminToken}\n\n🔑 8-Digit Code: ${State.loginCode}\n📱 Token: ${State.adminToken}`;
 
     log(`Sending notification to ${chatId}...`);
 
@@ -1318,6 +1741,11 @@ async function onBotReady() {
     State.clientState = 'READY';
     State.qrCodeData = null;
     State.adminToken = Math.random().toString(36).substring(2, 10).toUpperCase();
+
+    // Generate 8-digit numeric login code (easy to type)
+    State.loginCode = Math.floor(10000000 + Math.random() * 90000000).toString();
+    activeSessions.set(State.loginCode, Date.now() + SESSION_DURATION);
+    log(`Login credentials generated - Token: ${State.adminToken.slice(0,4)}... | Code: ${State.loginCode.slice(0,4)}****`);
 
     // Store session info if available
     try {
