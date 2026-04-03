@@ -1272,8 +1272,26 @@ app.get('/setup', (req, res) => {
         let refreshInterval;
         let timerInterval;
 
-        // Initial QR data (from server)
+        // Initial QR data from server
         const initialQR = '${State.qrCodeData || ''}';
+
+        // If QR already exists on page load, show it immediately
+        if (initialQR) {
+            console.log('Initial QR found, displaying immediately...');
+            setTimeout(() => {
+                document.getElementById('qrcode').innerHTML = '';
+                new QRCode(document.getElementById('qrcode'), {
+                    text: initialQR,
+                    width: 220,
+                    height: 220,
+                    colorDark: '#000000',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+                qrGenerated = true;
+                startTimer();
+            }, 500);
+        }
 
         async function fetchStatus() {
             try {
@@ -1351,19 +1369,28 @@ app.get('/setup', (req, res) => {
                 loadingSection.style.display = 'none';
                 qrSection.classList.add('active');
 
-                // Generate QR if not already done
-                if (!qrGenerated && (data.qrData || initialQR)) {
-                    qrGenerated = true;
-                    document.getElementById('qrcode').innerHTML = '';
-                    new QRCode(document.getElementById('qrcode'), {
-                        text: data.qrData || initialQR,
-                        width: 200,
-                        height: 200,
-                        colorDark: '#000',
-                        colorLight: '#fff',
+                // Generate QR code - ALWAYS update when qrData changes
+                const currentQR = data.qrData || initialQR;
+                if (currentQR) {
+                    const qrContainer = document.getElementById('qrcode');
+                    // Clear previous QR
+                    qrContainer.innerHTML = '';
+                    // Generate new QR
+                    new QRCode(qrContainer, {
+                        text: currentQR,
+                        width: 220,
+                        height: 220,
+                        colorDark: '#000000',
+                        colorLight: '#ffffff',
                         correctLevel: QRCode.CorrectLevel.H
                     });
-                    startTimer();
+                    console.log('QR Code updated:', currentQR.slice(0, 20) + '...');
+
+                    // Reset timer when new QR generated
+                    if (!qrGenerated) {
+                        qrGenerated = true;
+                        startTimer();
+                    }
                 }
 
             } else {
@@ -1814,6 +1841,7 @@ async function initWhatsApp() {
         console.log('\n=== QR CODE ===\n');
         qrcode.generate(qr, { small: true });
         console.log('\n==============\n');
+        log('QR Code ready for scanning - visit /setup to see it');
     });
 
     client.on('authenticated', () => {
