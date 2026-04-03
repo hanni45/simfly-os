@@ -679,7 +679,7 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-const server = app.listen(PORT, () => {
+const server = app.listen(CONFIG.PORT, () => {
     log('='.repeat(50));
     log('SimFly OS v5.0 - Firebase + Groq Edition');
     log('AI: ' + (groqClient ? 'ENABLED ✓' : 'DISABLED ✗'));
@@ -689,5 +689,5 @@ const server = app.listen(PORT, () => {
     setTimeout(startWhatsApp, 2000);
 });
 
-process.on('SIGTERM', () => { saveDB(); server.close(() => process.exit(0)); });
-process.on('SIGINT', () => { saveDB(); server.close(() => process.exit(0)); });
+process.on('SIGTERM', () => { log('SIGTERM received'); saveDB(); server.close(() => process.exit(0)); });
+process.on('SIGINT', () => { log('SIGINT received'); saveDB(); server.close(() => process.exit(0)); });
