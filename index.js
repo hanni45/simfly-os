@@ -212,7 +212,18 @@ async function initWhatsApp() {
 // EXPRESS SERVER - CLEAN & SIMPLE
 // ============================================
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+
+// CORS headers for all responses
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
 
 // Health Check
 app.get('/', (req, res) => {
@@ -1048,6 +1059,7 @@ app.get('/setup', (req, res) => {
         // Update UI based on state
         function updateUI(data) {
             lastUpdate.textContent = new Date().toLocaleTimeString();
+            console.log('Status update:', data.state, data);
 
             // Update logs
             if (data.logs && data.logs.length > 0) {
@@ -1055,6 +1067,8 @@ app.get('/setup', (req, res) => {
                     return '<div class="log-entry"><span class="log-time">' + (log.time || '--:--:--') + '</span> ' + log.msg + '</div>';
                 }).join('');
                 logsList.scrollTop = 0;
+            } else {
+                logsList.innerHTML = '<div class="log-entry"><span class="log-time">' + new Date().toLocaleTimeString() + '</span> Waiting for server... state: ' + (data.state || 'unknown') + '</div>';
             }
 
             // State handling
@@ -1148,17 +1162,28 @@ app.get('/setup', (req, res) => {
         }
 
         // Check status
+        let retryCount = 0;
         async function checkStatus() {
             try {
                 const res = await fetch('/api/status');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 updateUI(data);
+                retryCount = 0;
             } catch (e) {
-                console.error('Failed to fetch status:', e);
+                retryCount++;
+                console.error('Failed to fetch status (attempt ' + retryCount + '):', e);
+                // Show error in logs
+                const errorEntry = document.createElement('div');
+                errorEntry.className = 'log-entry';
+                errorEntry.innerHTML = '<span class="log-time">' + new Date().toLocaleTimeString() + '</span> Connection error... retrying';
+                if (logsList.children.length > 20) logsList.removeChild(logsList.lastChild);
+                logsList.insertBefore(errorEntry, logsList.firstChild);
             }
         }
 
         // Start checking
+        console.log('Starting status polling...');
         checkStatus();
         checkInterval = setInterval(checkStatus, 2000);
     </script>
