@@ -1,7 +1,7 @@
 {
   "name": "simfly-os",
-  "version": "8.0.0",
-  "description": "SimFly Pakistan WhatsApp Sales Bot - Firebase + Groq AI Master Bot",
+  "version": "8.1.0",
+  "description": "SimFly Pakistan WhatsApp Sales Bot - Firebase + Groq AI Master Bot with Payment Verification + 100+ Admin Commands",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

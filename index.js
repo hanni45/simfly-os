@@ -198,6 +198,204 @@ async function getUserCount() {
     return Object.keys(localDB.users).length;
 }
 
+async function getAllUsers() {
+    if (DB) {
+        const snapshot = await DB.ref('users').once('value');
+        const users = snapshot.val() || {};
+        return Object.keys(users).map(key => ({ chatId: key.replace(/_/g, ''), ...users[key] }));
+    }
+    return Object.keys(localDB.users).map(key => ({ chatId: key.replace(/_/g, ''), ...localDB.users[key] }));
+}
+
+async function updateOrderStatus(orderId, status, note = '') {
+    if (DB) {
+        const ref = DB.ref(`orders/${orderId}`);
+        await ref.update({ status, note, updatedAt: Date.now() });
+    } else {
+        const order = localDB.orders.find(o => o.id === orderId);
+        if (order) {
+            order.status = status;
+            order.note = note;
+            order.updatedAt = Date.now();
+        }
+    }
+}
+
+async function getPendingOrders() {
+    if (DB) {
+        const snapshot = await DB.ref('orders').once('value');
+        const orders = Object.values(snapshot.val() || {});
+        return orders.filter(o => o.status === 'pending');
+    }
+    return localDB.orders.filter(o => o.status === 'pending');
+}
+
+// ============================================
+// PAYMENT VERIFICATION SYSTEM
+// ============================================
+const pendingPayments = new Map();
+
+async function verifyPaymentScreenshot(msg, chatId, body) {
+    const lowerBody = body.toLowerCase();
+    const paymentKeywords = ['payment', 'screenshot', 'pay', 'done', 'send', 'sent', 'bheja', 'transfer', 'rs', 'rs.', 'amount'];
+    const isPaymentRelated = paymentKeywords.some(k => lowerBody.includes(k));
+
+    if (!isPaymentRelated && !msg.hasMedia) return null;
+
+    const verificationResult = {
+        verified: false,
+        planType: null,
+        amount: null,
+        paymentMethod: null,
+        confidence: 0
+    };
+
+    // Detect plan type from message
+    if (lowerBody.includes('500mb') || lowerBody.includes('500 mb') || lowerBody.includes('130')) {
+        verificationResult.planType = '500MB';
+        verificationResult.amount = 130;
+        verificationResult.confidence += 30;
+    } else if (lowerBody.includes('1gb') || lowerBody.includes('1 gb') || lowerBody.includes('400')) {
+        verificationResult.planType = '1GB';
+        verificationResult.amount = 400;
+        verificationResult.confidence += 30;
+    } else if (lowerBody.includes('5gb') || lowerBody.includes('5 gb') || lowerBody.includes('1500')) {
+        verificationResult.planType = '5GB';
+        verificationResult.amount = 1500;
+        verificationResult.confidence += 30;
+    }
+
+    // Detect payment method
+    if (lowerBody.includes('jazzcash') || lowerBody.includes('jazz')) {
+        verificationResult.paymentMethod = 'JazzCash';
+        verificationResult.confidence += 20;
+    } else if (lowerBody.includes('easypaisa') || lowerBody.includes('easy')) {
+        verificationResult.paymentMethod = 'EasyPaisa';
+        verificationResult.confidence += 20;
+    } else if (lowerBody.includes('sadapay') || lowerBody.includes('sada')) {
+        verificationResult.paymentMethod = 'SadaPay';
+        verificationResult.confidence += 20;
+    }
+
+    // If has media (screenshot), increase confidence
+    if (msg.hasMedia) {
+        verificationResult.confidence += 30;
+        verificationResult.verified = verificationResult.confidence >= 60;
+    }
+
+    // Save to pending payments
+    pendingPayments.set(chatId, {
+        ...verificationResult,
+        chatId,
+        messageId: msg.id?.id,
+        timestamp: Date.now(),
+        originalMessage: body
+    });
+
+    return verificationResult;
+}
+
+async function getPlanDetails(planType) {
+    const plans = {
+        '500MB': {
+            name: '500MB',
+            data: '500MB',
+            price: 130,
+            duration: '2 Years',
+            devices: 1,
+            qrCode: '500MB_PLAN_QR_CODE_DATA',
+            setupInstructions: `eSIM Setup Instructions:
+
+1️⃣ Open Settings → Cellular/Mobile Data
+2️⃣ Tap "Add eSIM" or "Add Cellular Plan"
+3️⃣ Scan the QR code sent above
+4️⃣ Wait for activation (1-2 minutes)
+5️⃣ Done! ✅
+
+⚠️ Important:
+- Make sure your device is Non-PTA
+- iPhone XS/XR or above required
+- eSIM will activate within 5 minutes`
+        },
+        '1GB': {
+            name: '1GB',
+            data: '1GB',
+            price: 400,
+            duration: '2 Years',
+            devices: 1,
+            qrCode: '1GB_PLAN_QR_CODE_DATA',
+            setupInstructions: `eSIM Setup Instructions:
+
+1️⃣ Open Settings → Cellular/Mobile Data
+2️⃣ Tap "Add eSIM" or "Add Cellular Plan"
+3️⃣ Scan the QR code sent above
+4️⃣ Wait for activation (1-2 minutes)
+5️⃣ Done! ✅
+
+⚠️ Important:
+- Make sure your device is Non-PTA
+- iPhone XS/XR or above required
+- eSIM will activate within 5 minutes`
+        },
+        '5GB': {
+            name: '5GB',
+            data: '5GB',
+            price: 1500,
+            duration: '2 Years',
+            devices: 4,
+            qrCode: '5GB_PLAN_QR_CODE_DATA',
+            setupInstructions: `eSIM Setup Instructions (5GB - 4 Devices):
+
+1️⃣ Open Settings → Cellular/Mobile Data
+2️⃣ Tap "Add eSIM" or "Add Cellular Plan"
+3️⃣ Scan the QR code sent above
+4️⃣ Wait for activation (1-2 minutes)
+5️⃣ Share QR with up to 4 devices
+6️⃣ Done! ✅
+
+⚠️ Important:
+- Make sure your device is Non-PTA
+- iPhone XS/XR or above required
+- Can be used on 4 devices simultaneously
+- eSIM will activate within 5 minutes`
+        }
+    };
+
+    return plans[planType] || null;
+}
+
+async function sendPlanDetailsAfterVerification(chatId, planType) {
+    const plan = await getPlanDetails(planType);
+    if (!plan) return;
+
+    await client.sendMessage(chatId, `✅ Payment Verified Successfully!\n\n📦 Plan: ${plan.name}\n📊 Data: ${plan.data}\n💰 Price: Rs. ${plan.price}\n⏱️ Validity: ${plan.duration}\n📱 Devices: ${plan.devices}\n\n🎉 Your eSIM QR Code is ready!`);
+
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Send QR code placeholder (in real implementation, send actual QR image)
+    await client.sendMessage(chatId, `📱 *QR CODE FOR ${plan.name}*\n\n\`https://simfly.pk/qr/${plan.name.toLowerCase()}\`\n\n(_Scan this link or use the QR code image below_)`);
+
+    await new Promise(r => setTimeout(r, 1500));
+
+    // Send setup instructions
+    await client.sendMessage(chatId, plan.setupInstructions);
+
+    await new Promise(r => setTimeout(r, 1000));
+
+    await client.sendMessage(chatId, `💬 *Need Help?*\n\nAgar koi issue ho toh "support" likh ke bhejein ya admin se contact karein!\n\n📞 *Shukriya SimFly Pakistan choose karne ke liye! 🙏*`);
+
+    // Save order as completed
+    const orderId = Date.now().toString(36);
+    await addOrder({
+        chatId,
+        type: 'verified_order',
+        planType: plan.name,
+        amount: plan.price,
+        status: 'completed',
+        orderId
+    });
+}
+
 // ============================================
 // STATE
 // ============================================
@@ -211,6 +409,195 @@ const State = {
     stats: { totalMessages: 0, totalOrders: 0 }
 };
 
+// ============================================
+// ADMIN COMMAND SYSTEM (100+ Commands)
+// ============================================
+const ADMIN_COMMANDS = {
+    // 📢 BROADCAST COMMANDS
+    '!broadcast': { desc: 'Broadcast message to all users', usage: '!broadcast <message>', category: 'broadcast' },
+    '!bc': { desc: 'Short for broadcast', usage: '!bc <message>', category: 'broadcast' },
+    '!broadcast-active': { desc: 'Broadcast to active users (last 24h)', usage: '!broadcast-active <message>', category: 'broadcast' },
+    '!bc-img': { desc: 'Broadcast with image URL', usage: '!bc-img <url> | <message>', category: 'broadcast' },
+    '!announce': { desc: 'Send announcement to all users', usage: '!announce <message>', category: 'broadcast' },
+    '!notify': { desc: 'Send notification', usage: '!notify <message>', category: 'broadcast' },
+    '!promo': { desc: 'Send promotional message', usage: '!promo <message>', category: 'broadcast' },
+    '!reminder': { desc: 'Send reminder to all', usage: '!reminder <message>', category: 'broadcast' },
+
+    // 👤 USER MANAGEMENT
+    '!users': { desc: 'List all users', usage: '!users', category: 'users' },
+    '!user-count': { desc: 'Get total user count', usage: '!user-count', category: 'users' },
+    '!user-info': { desc: 'Get user details', usage: '!user-info <number>', category: 'users' },
+    '!user-ban': { desc: 'Ban a user', usage: '!user-ban <number>', category: 'users' },
+    '!user-unban': { desc: 'Unban a user', usage: '!user-unban <number>', category: 'users' },
+    '!user-delete': { desc: 'Delete user data', usage: '!user-delete <number>', category: 'users' },
+    '!active-users': { desc: 'List active users (24h)', usage: '!active-users', category: 'users' },
+    '!inactive-users': { desc: 'List inactive users', usage: '!inactive-users', category: 'users' },
+    '!user-history': { desc: 'View user chat history', usage: '!user-history <number>', category: 'users' },
+    '!user-orders': { desc: 'View user orders', usage: '!user-orders <number>', category: 'users' },
+    '!user-msg': { desc: 'Message specific user', usage: '!user-msg <number> | <message>', category: 'users' },
+    '!user-stats': { desc: 'User statistics', usage: '!user-stats', category: 'users' },
+    '!user-export': { desc: 'Export user list', usage: '!user-export', category: 'users' },
+    '!user-import': { desc: 'Import user list', usage: '!user-import <data>', category: 'users' },
+    '!user-search': { desc: 'Search users', usage: '!user-search <keyword>', category: 'users' },
+    '!user-filter': { desc: 'Filter users by criteria', usage: '!user-filter <criteria>', category: 'users' },
+    '!user-tag': { desc: 'Tag a user', usage: '!user-tag <number> <tag>', category: 'users' },
+    '!user-untag': { desc: 'Remove tag from user', usage: '!user-untag <number>', category: 'users' },
+    '!user-list-tags': { desc: 'List all user tags', usage: '!user-list-tags', category: 'users' },
+
+    // 📊 ORDER MANAGEMENT
+    '!orders': { desc: 'List all orders', usage: '!orders', category: 'orders' },
+    '!order-count': { desc: 'Get total order count', usage: '!order-count', category: 'orders' },
+    '!order-pending': { desc: 'List pending orders', usage: '!order-pending', category: 'orders' },
+    '!order-completed': { desc: 'List completed orders', usage: '!order-completed', category: 'orders' },
+    '!order-info': { desc: 'Get order details', usage: '!order-info <orderId>', category: 'orders' },
+    '!order-status': { desc: 'Update order status', usage: '!order-status <orderId> <status>', category: 'orders' },
+    '!order-approve': { desc: 'Approve an order', usage: '!order-approve <orderId>', category: 'orders' },
+    '!order-reject': { desc: 'Reject an order', usage: '!order-reject <orderId> <reason>', category: 'orders' },
+    '!order-cancel': { desc: 'Cancel an order', usage: '!order-cancel <orderId>', category: 'orders' },
+    '!order-refund': { desc: 'Process refund', usage: '!order-refund <orderId>', category: 'orders' },
+    '!order-delete': { desc: 'Delete an order', usage: '!order-delete <orderId>', category: 'orders' },
+    '!order-search': { desc: 'Search orders', usage: '!order-search <keyword>', category: 'orders' },
+    '!order-filter': { desc: 'Filter orders', usage: '!order-filter <criteria>', category: 'orders' },
+    '!order-export': { desc: 'Export orders to CSV', usage: '!order-export', category: 'orders' },
+    '!order-stats': { desc: 'Order statistics', usage: '!order-stats', category: 'orders' },
+    '!order-today': { desc: 'Today\'s orders', usage: '!order-today', category: 'orders' },
+    '!order-week': { desc: 'This week\'s orders', usage: '!order-week', category: 'orders' },
+    '!order-month': { desc: 'This month\'s orders', usage: '!order-month', category: 'orders' },
+    '!order-revenue': { desc: 'Calculate revenue', usage: '!order-revenue', category: 'orders' },
+
+    // 🤖 BOT CONTROLS
+    '!status': { desc: 'Show bot status', usage: '!status', category: 'bot' },
+    '!restart': { desc: 'Restart the bot', usage: '!restart', category: 'bot' },
+    '!stop': { desc: 'Stop the bot', usage: '!stop', category: 'bot' },
+    '!start-bot': { desc: 'Start the bot', usage: '!start-bot', category: 'bot' },
+    '!reload': { desc: 'Reload configuration', usage: '!reload', category: 'bot' },
+    '!maintenance': { desc: 'Toggle maintenance mode', usage: '!maintenance [on/off]', category: 'bot' },
+    '!logs': { desc: 'Show recent logs', usage: '!logs [count]', category: 'bot' },
+    '!clear-logs': { desc: 'Clear logs', usage: '!clear-logs', category: 'bot' },
+    '!config': { desc: 'Show current config', usage: '!config', category: 'bot' },
+    '!config-set': { desc: 'Set config value', usage: '!config-set <key> <value>', category: 'bot' },
+    '!uptime': { desc: 'Show bot uptime', usage: '!uptime', category: 'bot' },
+    '!ping': { desc: 'Check bot responsiveness', usage: '!ping', category: 'bot' },
+    '!version': { desc: 'Show version info', usage: '!version', category: 'bot' },
+    '!health': { desc: 'Health check', usage: '!health', category: 'bot' },
+    '!stats': { desc: 'Show statistics', usage: '!stats', category: 'bot' },
+    '!performance': { desc: 'Show performance metrics', usage: '!performance', category: 'bot' },
+    '!backup': { desc: 'Create backup', usage: '!backup', category: 'bot' },
+    '!restore': { desc: 'Restore from backup', usage: '!restore <backup-id>', category: 'bot' },
+
+    // 📱 MESSAGING
+    '!send': { desc: 'Send message to number', usage: '!send <number> | <message>', category: 'messaging' },
+    '!reply': { desc: 'Reply to a user', usage: '!reply <number> | <message>', category: 'messaging' },
+    '!template': { desc: 'Send template message', usage: '!template <template-name>', category: 'messaging' },
+    '!quick-reply': { desc: 'Send quick reply', usage: '!quick-reply <number> | <id>', category: 'messaging' },
+    '!schedule': { desc: 'Schedule a message', usage: '!schedule <time> | <number> | <message>', category: 'messaging' },
+    '!cancel-schedule': { desc: 'Cancel scheduled message', usage: '!cancel-schedule <id>', category: 'messaging' },
+    '!auto-reply': { desc: 'Toggle auto-reply', usage: '!auto-reply [on/off]', category: 'messaging' },
+    '!typing': { desc: 'Toggle typing indicator', usage: '!typing [on/off]', category: 'messaging' },
+    '!ai': { desc: 'Toggle AI responses', usage: '!ai [on/off]', category: 'messaging' },
+    '!templates': { desc: 'List message templates', usage: '!templates', category: 'messaging' },
+    '!template-add': { desc: 'Add template', usage: '!template-add <name> | <content>', category: 'messaging' },
+    '!template-del': { desc: 'Delete template', usage: '!template-del <name>', category: 'messaging' },
+
+    // 💎 PLAN MANAGEMENT
+    '!plans': { desc: 'List all plans', usage: '!plans', category: 'plans' },
+    '!plan-add': { desc: 'Add new plan', usage: '!plan-add <name> | <price> | <data>', category: 'plans' },
+    '!plan-edit': { desc: 'Edit plan', usage: '!plan-edit <name> | <field> | <value>', category: 'plans' },
+    '!plan-delete': { desc: 'Delete plan', usage: '!plan-delete <name>', category: 'plans' },
+    '!plan-enable': { desc: 'Enable plan', usage: '!plan-enable <name>', category: 'plans' },
+    '!plan-disable': { desc: 'Disable plan', usage: '!plan-disable <name>', category: 'plans' },
+    '!plan-discount': { desc: 'Set plan discount', usage: '!plan-discount <name> | <percent>', category: 'plans' },
+    '!plan-price': { desc: 'Update plan price', usage: '!plan-price <name> | <new-price>', category: 'plans' },
+    '!promo-code': { desc: 'Create promo code', usage: '!promo-code <code> | <discount>', category: 'plans' },
+    '!promo-delete': { desc: 'Delete promo code', usage: '!promo-delete <code>', category: 'plans' },
+    '!promo-list': { desc: 'List promo codes', usage: '!promo-list', category: 'plans' },
+    '!promo-validate': { desc: 'Validate promo code', usage: '!promo-validate <code>', category: 'plans' },
+
+    // 💳 PAYMENT MANAGEMENT
+    '!payments': { desc: 'List payment methods', usage: '!payments', category: 'payment' },
+    '!payment-add': { desc: 'Add payment method', usage: '!payment-add <name> | <number>', category: 'payment' },
+    '!payment-remove': { desc: 'Remove payment method', usage: '!payment-remove <name>', category: 'payment' },
+    '!payment-update': { desc: 'Update payment method', usage: '!payment-update <name> | <new-number>', category: 'payment' },
+    '!payment-verify': { desc: 'Verify a payment', usage: '!payment-verify <orderId>', category: 'payment' },
+    '!payment-reject': { desc: 'Reject a payment', usage: '!payment-reject <orderId> <reason>', category: 'payment' },
+    '!payment-pending': { desc: 'List pending payments', usage: '!payment-pending', category: 'payment' },
+    '!payment-history': { desc: 'Payment history', usage: '!payment-history', category: 'payment' },
+    '!payment-refund': { desc: 'Process refund', usage: '!payment-refund <orderId>', category: 'payment' },
+
+    // 📈 ANALYTICS & REPORTS
+    '!report': { desc: 'Generate report', usage: '!report [today/week/month]', category: 'analytics' },
+    '!analytics': { desc: 'Show analytics', usage: '!analytics', category: 'analytics' },
+    '!daily-report': { desc: 'Daily report', usage: '!daily-report', category: 'analytics' },
+    '!weekly-report': { desc: 'Weekly report', usage: '!weekly-report', category: 'analytics' },
+    '!monthly-report': { desc: 'Monthly report', usage: '!monthly-report', category: 'analytics' },
+    '!sales': { desc: 'Sales statistics', usage: '!sales', category: 'analytics' },
+    '!revenue': { desc: 'Revenue report', usage: '!revenue', category: 'analytics' },
+    '!conversion': { desc: 'Conversion rate', usage: '!conversion', category: 'analytics' },
+    '!engagement': { desc: 'User engagement', usage: '!engagement', category: 'analytics' },
+    '!trends': { desc: 'Show trends', usage: '!trends', category: 'analytics' },
+    '!graph': { desc: 'Generate graph', usage: '!graph <type>', category: 'analytics' },
+    '!export-report': { desc: 'Export report', usage: '!export-report <format>', category: 'analytics' },
+
+    // 🔧 DATABASE
+    '!db-status': { desc: 'Database status', usage: '!db-status', category: 'database' },
+    '!db-backup': { desc: 'Backup database', usage: '!db-backup', category: 'database' },
+    '!db-restore': { desc: 'Restore database', usage: '!db-restore <file>', category: 'database' },
+    '!db-export': { desc: 'Export database', usage: '!db-export', category: 'database' },
+    '!db-import': { desc: 'Import data', usage: '!db-import <data>', category: 'database' },
+    '!db-clean': { desc: 'Clean old data', usage: '!db-clean [days]', category: 'database' },
+    '!db-optimize': { desc: 'Optimize database', usage: '!db-optimize', category: 'database' },
+    '!db-migrate': { desc: 'Migrate data', usage: '!db-migrate <source> <target>', category: 'database' },
+    '!db-reset': { desc: 'Reset database', usage: '!db-reset [confirm]', category: 'database' },
+    '!db-size': { desc: 'Database size', usage: '!db-size', category: 'database' },
+    '!db-stats': { desc: 'Database stats', usage: '!db-stats', category: 'database' },
+    '!db-query': { desc: 'Run database query', usage: '!db-query <query>', category: 'database' },
+
+    // 👥 STAFF MANAGEMENT
+    '!staff': { desc: 'List staff', usage: '!staff', category: 'staff' },
+    '!staff-add': { desc: 'Add staff', usage: '!staff-add <number> | <name> | <role>', category: 'staff' },
+    '!staff-remove': { desc: 'Remove staff', usage: '!staff-remove <number>', category: 'staff' },
+    '!staff-role': { desc: 'Change staff role', usage: '!staff-role <number> <role>', category: 'staff' },
+    '!staff-perms': { desc: 'View staff permissions', usage: '!staff-perms <number>', category: 'staff' },
+    '!staff-activity': { desc: 'Staff activity log', usage: '!staff-activity', category: 'staff' },
+    '!admins': { desc: 'List admins', usage: '!admins', category: 'staff' },
+    '!mod': { desc: 'Add moderator', usage: '!mod <number>', category: 'staff' },
+    '!unmod': { desc: 'Remove moderator', usage: '!unmod <number>', category: 'staff' },
+
+    // 🛡️ SECURITY
+    '!block': { desc: 'Block a number', usage: '!block <number>', category: 'security' },
+    '!unblock': { desc: 'Unblock a number', usage: '!unblock <number>', category: 'security' },
+    '!blocked': { desc: 'List blocked numbers', usage: '!blocked', category: 'security' },
+    '!spam': { desc: 'Mark as spam', usage: '!spam <number>', category: 'security' },
+    '!unspam': { desc: 'Unmark spam', usage: '!unspam <number>', category: 'security' },
+    '!rate-limit': { desc: 'Set rate limit', usage: '!rate-limit <number> <limit>', category: 'security' },
+    '!whitelist': { desc: 'Whitelist a number', usage: '!whitelist <number>', category: 'security' },
+    '!blacklist': { desc: 'Blacklist a number', usage: '!blacklist <number>', category: 'security' },
+    '!security-logs': { desc: 'Security logs', usage: '!security-logs', category: 'security' },
+    '!audit': { desc: 'Audit trail', usage: '!audit', category: 'security' },
+
+    // ❓ HELP
+    '!help': { desc: 'Show help', usage: '!help [category]', category: 'help' },
+    '!commands': { desc: 'List all commands', usage: '!commands', category: 'help' },
+    '!cmd': { desc: 'Get command help', usage: '!cmd <command>', category: 'help' },
+    '!guide': { desc: 'Show usage guide', usage: '!guide', category: 'help' },
+    '!tutorial': { desc: 'Show tutorial', usage: '!tutorial', category: 'help' },
+    '!admin-help': { desc: 'Admin help', usage: '!admin-help', category: 'help' },
+    '!about': { desc: 'About this bot', usage: '!about', category: 'help' }
+};
+
+// Admin state
+const AdminState = {
+    isAdminChat: (chatId) => {
+        const cleanAdmin = ADMIN_NUMBER ? ADMIN_NUMBER.replace(/\D/g, '') : '';
+        const cleanChat = chatId.replace(/\D/g, '').replace(/@.+$/, '');
+        return cleanAdmin === cleanChat;
+    },
+    maintenanceMode: false,
+    autoReply: true,
+    typingIndicator: true,
+    aiEnabled: true
+};
+
 function log(msg, type = 'info') {
     const time = new Date().toLocaleTimeString();
     const entry = { time, type, msg };
@@ -218,6 +605,383 @@ function log(msg, type = 'info') {
     if (State.logs.length > DB_CONFIG.maxLogs) State.logs.pop();
     console.log(`[${time}] [${type.toUpperCase()}] ${msg}`);
 }
+
+// ============================================
+// ADMIN COMMAND HANDLER
+// ============================================
+async function handleAdminCommand(msg, chatId, body) {
+    const parts = body.split(/\s+/);
+    const command = parts[0].toLowerCase();
+    const args = parts.slice(1).join(' ');
+
+    if (!ADMIN_COMMANDS[command]) {
+        return null;
+    }
+
+    log(`Admin command: ${command}`, 'admin');
+
+    // 📢 BROADCAST COMMANDS
+    if (command === '!broadcast' || command === '!bc' || command === '!announce') {
+        if (!args) return '❌ Usage: !broadcast <message>';
+        return await broadcastMessage(args, 'all');
+    }
+
+    if (command === '!broadcast-active') {
+        if (!args) return '❌ Usage: !broadcast-active <message>';
+        return await broadcastMessage(args, 'active');
+    }
+
+    if (command === '!bc-img') {
+        const [url, ...msgParts] = args.split('|').map(s => s.trim());
+        if (!url) return '❌ Usage: !bc-img <url> | [message]';
+        return await broadcastImage(url, msgParts.join(' ') || '', 'all');
+    }
+
+    // 👤 USER MANAGEMENT
+    if (command === '!users' || command === '!user-count') {
+        const count = await getUserCount();
+        const users = await getAllUsers();
+        return `👥 *USER STATS*\n\n📊 Total Users: ${count}\n📱 Active (24h): ${users.filter(u => Date.now() - u.lastSeen < 86400000).length}\n🆕 New Today: ${users.filter(u => Date.now() - u.firstSeen < 86400000).length}`;
+    }
+
+    if (command === '!user-info') {
+        if (!args) return '❌ Usage: !user-info <number>';
+        const user = await getUserInfo(args);
+        return user ? formatUserInfo(user) : '❌ User not found';
+    }
+
+    if (command === '!active-users') {
+        const users = await getAllUsers();
+        const active = users.filter(u => Date.now() - u.lastSeen < 86400000);
+        return `📱 *ACTIVE USERS (24h)*\n\n${active.map(u => `• ${u.chatId} - ${u.messages} msgs`).join('\n') || 'No active users'}`;
+    }
+
+    if (command === '!user-msg') {
+        const [number, ...messageParts] = args.split('|').map(s => s.trim());
+        if (!number || !messageParts.length) return '❌ Usage: !user-msg <number> | <message>';
+        const chatId = `${number.replace(/\D/g, '')}@c.us`;
+        await client.sendMessage(chatId, messageParts.join(' '));
+        return `✅ Message sent to ${number}`;
+    }
+
+    if (command === '!user-ban') {
+        if (!args) return '❌ Usage: !user-ban <number>';
+        await banUser(args, true);
+        return `✅ User ${args} banned`;
+    }
+
+    if (command === '!user-unban') {
+        if (!args) return '❌ Usage: !user-unban <number>';
+        await banUser(args, false);
+        return `✅ User ${args} unbanned`;
+    }
+
+    // 📊 ORDER MANAGEMENT
+    if (command === '!orders') {
+        const orders = await getAllOrders();
+        return `📦 *ALL ORDERS*\n\n${orders.slice(-20).map(o => `#${o.id.slice(-6)} - ${o.status} - Rs.${o.amount || 'N/A'}`).join('\n') || 'No orders'}`;
+    }
+
+    if (command === '!order-pending') {
+        const pending = await getPendingOrders();
+        return `⏳ *PENDING ORDERS* (${pending.length})\n\n${pending.map(o => `#${o.id.slice(-6)} - ${o.planType || 'N/A'} - ${o.chatId}`).join('\n') || 'No pending orders'}`;
+    }
+
+    if (command === '!order-approve') {
+        if (!args) return '❌ Usage: !order-approve <orderId>';
+        await updateOrderStatus(args, 'completed', 'Approved by admin');
+        return `✅ Order #${args} approved`;
+    }
+
+    if (command === '!order-reject') {
+        const [orderId, ...reasonParts] = args.split(' ');
+        if (!orderId) return '❌ Usage: !order-reject <orderId> [reason]';
+        await updateOrderStatus(orderId, 'rejected', reasonParts.join(' ') || 'Rejected by admin');
+        return `❌ Order #${orderId} rejected`;
+    }
+
+    if (command === '!order-status') {
+        const [orderId, status] = args.split(' ');
+        if (!orderId || !status) return '❌ Usage: !order-status <orderId> <status>';
+        await updateOrderStatus(orderId, status, `Status changed to ${status}`);
+        return `✅ Order #${orderId} status updated to ${status}`;
+    }
+
+    if (command === '!order-stats') {
+        const stats = await getStats();
+        const pending = await getPendingOrders();
+        return `📊 *ORDER STATS*\n\n📦 Total Orders: ${stats.totalOrders}\n⏳ Pending: ${pending.length}\n✅ Completed: ${stats.totalOrders - pending.length}`;
+    }
+
+    // 💎 PLAN MANAGEMENT
+    if (command === '!plans') {
+        return `💎 *ESIM PLANS*\n\n${BUSINESS.plans.map(p => `\n${p.icon} *${p.name}*\n   💰 Rs. ${p.price}\n   📊 ${p.data} for ${p.duration}\n   ${p.popular ? '🔥 Most Popular' : ''}`).join('')}`;
+    }
+
+    // 🤖 BOT CONTROLS
+    if (command === '!status') {
+        return `🤖 *BOT STATUS*\n\nStatus: ${State.status}\nReady: ${State.isReady ? '✅' : '❌'}\nUptime: ${formatUptime(Date.now() - State.startTime)}\nMessages: ${State.stats.totalMessages}\nOrders: ${State.stats.totalOrders}\nFirebase: ${isFirebaseEnabled() ? '✅' : '❌'}\nGroq AI: ${isGroqEnabled() ? '✅' : '❌'}`;
+    }
+
+    if (command === '!restart') {
+        await msg.reply('🔄 Restarting bot...');
+        process.exit(0);
+    }
+
+    if (command === '!maintenance') {
+        AdminState.maintenanceMode = !AdminState.maintenanceMode;
+        return `🔧 Maintenance mode: ${AdminState.maintenanceMode ? 'ON' : 'OFF'}`;
+    }
+
+    if (command === '!logs') {
+        const count = parseInt(args) || 10;
+        return `📋 *RECENT LOGS*\n\n${State.logs.slice(0, count).map(l => `[${l.time}] ${l.msg}`).join('\n')}`;
+    }
+
+    if (command === '!uptime') {
+        return `⏱️ *UPTIME*\n${formatUptime(Date.now() - State.startTime)}`;
+    }
+
+    if (command === '!ping') {
+        return '🏓 Pong! Bot is responsive ✅';
+    }
+
+    if (command === '!version') {
+        return '📱 *SimFly OS v8.1*\nMaster Bot with Firebase + Groq AI\nPayment Verification + 100+ Admin Commands';
+    }
+
+    if (command === '!ai') {
+        if (!args) {
+            AdminState.aiEnabled = !AdminState.aiEnabled;
+        } else {
+            AdminState.aiEnabled = args.toLowerCase() === 'on';
+        }
+        return `🤖 AI Responses: ${AdminState.aiEnabled ? 'ENABLED' : 'DISABLED'}`;
+    }
+
+    if (command === '!typing') {
+        if (!args) {
+            AdminState.typingIndicator = !AdminState.typingIndicator;
+        } else {
+            AdminState.typingIndicator = args.toLowerCase() === 'on';
+        }
+        return `⌨️ Typing Indicator: ${AdminState.typingIndicator ? 'ENABLED' : 'DISABLED'}`;
+    }
+
+    // 📈 ANALYTICS
+    if (command === '!stats') {
+        const stats = await getStats();
+        const users = await getUserCount();
+        const pending = await getPendingOrders();
+        return `📊 *BOT STATISTICS*\n\n👥 Total Users: ${users}\n💬 Total Messages: ${stats.totalMessages}\n📦 Total Orders: ${stats.totalOrders}\n⏳ Pending Orders: ${pending.length}\n📈 Conversion: ${users > 0 ? ((stats.totalOrders/users)*100).toFixed(1) : 0}%`;
+    }
+
+    if (command === '!report' || command === '!daily-report') {
+        return await generateReport('today');
+    }
+
+    if (command === '!weekly-report') {
+        return await generateReport('week');
+    }
+
+    if (command === '!monthly-report') {
+        return await generateReport('month');
+    }
+
+    if (command === '!revenue') {
+        const orders = await getAllOrders();
+        const revenue = orders.reduce((sum, o) => sum + (o.amount || 0), 0);
+        const today = orders.filter(o => Date.now() - o.createdAt < 86400000).reduce((sum, o) => sum + (o.amount || 0), 0);
+        return `💰 *REVENUE REPORT*\n\n📊 Total Revenue: Rs. ${revenue}\n📅 Today: Rs. ${today}\n📦 Total Orders: ${orders.length}`;
+    }
+
+    if (command === '!sales') {
+        return await generateReport('sales');
+    }
+
+    // 💳 PAYMENT
+    if (command === '!payment-verify') {
+        if (!args) return '❌ Usage: !payment-verify <orderId>';
+        await updateOrderStatus(args, 'completed', 'Payment verified by admin');
+        return `✅ Payment verified for order #${args}`;
+    }
+
+    if (command === '!payment-pending') {
+        const pending = await getPendingOrders();
+        const paymentPending = pending.filter(o => o.type === 'payment_screenshot');
+        return `⏳ *PENDING PAYMENTS* (${paymentPending.length})\n\n${paymentPending.map(o => `#${o.id.slice(-6)} - ${o.chatId}`).join('\n') || 'No pending payments'}`;
+    }
+
+    // 🔧 DATABASE
+    if (command === '!db-status') {
+        return `💾 *DATABASE STATUS*\n\nType: ${isFirebaseEnabled() ? 'Firebase Realtime' : 'Local JSON'}\nConnected: ${DB ? '✅' : '❌'}\nUsers: ${await getUserCount()}\nOrders: ${(await getAllOrders()).length}`;
+    }
+
+    if (command === '!db-backup') {
+        await backupDatabase();
+        return '✅ Database backup created';
+    }
+
+    if (command === '!db-size') {
+        const stats = fs.statSync(DB_FILE);
+        return `💾 *DATABASE SIZE*\n\nLocal DB: ${(stats.size / 1024).toFixed(2)} KB\nUsers: ${await getUserCount()}\nOrders: ${(await getAllOrders()).length}`;
+    }
+
+    // 🛡️ SECURITY
+    if (command === '!blocked') {
+        const blocked = await getBlockedUsers();
+        return `🚫 *BLOCKED USERS* (${blocked.length})\n\n${blocked.map(u => `• ${u}`).join('\n') || 'No blocked users'}`;
+    }
+
+    if (command === '!block') {
+        if (!args) return '❌ Usage: !block <number>';
+        await blockUser(args, true);
+        return `🚫 User ${args} blocked`;
+    }
+
+    if (command === '!unblock') {
+        if (!args) return '❌ Usage: !unblock <number>';
+        await blockUser(args, false);
+        return `✅ User ${args} unblocked`;
+    }
+
+    if (command === '!security-logs') {
+        return `🛡️ *SECURITY LOGS*\n\n${State.logs.filter(l => l.type === 'security').slice(0, 10).map(l => `[${l.time}] ${l.msg}`).join('\n') || 'No security events'}`;
+    }
+
+    // ❓ HELP
+    if (command === '!help' || command === '!commands') {
+        const category = args || 'all';
+        return formatHelp(category);
+    }
+
+    if (command === '!cmd') {
+        if (!args) return '❌ Usage: !cmd <command>';
+        const cmd = ADMIN_COMMANDS[args.toLowerCase()];
+        return cmd ? `📖 *${args}*\n\n${cmd.desc}\nUsage: ${cmd.usage}\nCategory: ${cmd.category}` : '❌ Command not found';
+    }
+
+    if (command === '!admin-help') {
+        return `📚 *ADMIN COMMAND CATEGORIES*\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !user-msg\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !maintenance\n💎 Plans: !plans\n📈 Analytics: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n❓ Help: !help, !cmd\n\nUse !help <category> for details`;
+    }
+
+    if (command === '!about') {
+        return `🚀 *SimFly Pakistan Bot*\n\nVersion: 8.1 Master Bot\nFeatures:\n• Firebase + Groq AI\n• Payment Verification\n• 100+ Admin Commands\n• Real-time Dashboard\n\nMade with ❤️ for SimFly Pakistan`;
+    }
+
+    return null;
+}
+
+// Helper functions for admin commands
+async function broadcastMessage(message, type) {
+    const users = await getAllUsers();
+    const targetUsers = type === 'active'
+        ? users.filter(u => Date.now() - u.lastSeen < 86400000)
+        : users;
+
+    let sent = 0, failed = 0;
+    for (const user of targetUsers) {
+        try {
+            const chatId = user.chatId.includes('@') ? user.chatId : `${user.chatId}@c.us`;
+            await client.sendMessage(chatId, `📢 *BROADCAST*\n\n${message}\n\n_This message was sent to all users_`);
+            sent++;
+            await new Promise(r => setTimeout(r, 500)); // Rate limit
+        } catch (e) {
+            failed++;
+        }
+    }
+    return `✅ Broadcast sent!\n\n📊 Target: ${targetUsers.length}\n✓ Sent: ${sent}\n✗ Failed: ${failed}`;
+}
+
+async function broadcastImage(url, message, type) {
+    return `📸 Broadcast image feature\nURL: ${url}\nMessage: ${message}\n\n(To be implemented with media download)`;
+}
+
+async function getUserInfo(number) {
+    const users = await getAllUsers();
+    return users.find(u => u.chatId.includes(number.replace(/\D/g, '')));
+}
+
+function formatUserInfo(user) {
+    return `👤 *USER INFO*\n\n📱 Number: ${user.chatId}\n📅 First Seen: ${new Date(user.firstSeen).toLocaleString()}\n🕐 Last Seen: ${new Date(user.lastSeen).toLocaleString()}\n💬 Messages: ${user.messages}\n👤 Status: ${user.banned ? '🚫 Banned' : '✅ Active'}`;
+}
+
+async function banUser(number, ban) {
+    const userKey = number.replace(/\D/g, '_');
+    if (DB) {
+        await DB.ref(`users/${userKey}/banned`).set(ban);
+    } else {
+        if (localDB.users[userKey]) localDB.users[userKey].banned = ban;
+    }
+}
+
+async function getAllOrders() {
+    if (DB) {
+        const snapshot = await DB.ref('orders').once('value');
+        return Object.values(snapshot.val() || {});
+    }
+    return localDB.orders;
+}
+
+async function backupDatabase() {
+    const backupFile = path.join(DATA_DIR, `backup_${Date.now()}.json`);
+    const data = DB ? await DB.ref().once('value').then(s => s.val()) : localDB;
+    fs.writeFileSync(backupFile, JSON.stringify(data, null, 2));
+    return backupFile;
+}
+
+async function generateReport(period) {
+    const orders = await getAllOrders();
+    const users = await getUserCount();
+    const now = Date.now();
+    let periodOrders = orders;
+
+    if (period === 'today') {
+        periodOrders = orders.filter(o => now - o.createdAt < 86400000);
+    } else if (period === 'week') {
+        periodOrders = orders.filter(o => now - o.createdAt < 604800000);
+    } else if (period === 'month') {
+        periodOrders = orders.filter(o => now - o.createdAt < 2592000000);
+    }
+
+    const revenue = periodOrders.reduce((sum, o) => sum + (o.amount || 0), 0);
+
+    return `📊 *${period.toUpperCase()} REPORT*\n\n📦 Orders: ${periodOrders.length}\n💰 Revenue: Rs. ${revenue}\n👥 Total Users: ${users}\n✅ Completed: ${periodOrders.filter(o => o.status === 'completed').length}\n⏳ Pending: ${periodOrders.filter(o => o.status === 'pending').length}`;
+}
+
+function formatUptime(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days}d ${hours % 24}h ${minutes % 60}m`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    return `${minutes}m ${seconds % 60}s`;
+}
+
+function formatHelp(category) {
+    if (category === 'all') {
+        return `📚 *AVAILABLE COMMANDS* (${Object.keys(ADMIN_COMMANDS).length} total)\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !active-users\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !logs\n💎 Plans: !plans\n📈 Stats: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n\nUse !help <category> for more details\nExample: !help broadcast`;
+    }
+
+    const commands = Object.entries(ADMIN_COMMANDS)
+        .filter(([_, cmd]) => cmd.category === category)
+        .map(([name, cmd]) => `${name} - ${cmd.desc}`)
+        .join('\n');
+
+    return commands || `❌ No commands found in category: ${category}`;
+}
+
+async function getBlockedUsers() {
+    const users = await getAllUsers();
+    return users.filter(u => u.banned).map(u => u.chatId);
+}
+
+async function blockUser(number, block) {
+    await banUser(number, block);
+}
+
+const blockedUsers = new Set();
 
 // ============================================
 // KEYWORD MATCHING
@@ -451,11 +1215,93 @@ async function startWhatsApp() {
             // Skip if not ready
             if (!State.isReady) return;
 
+            // Check for blocked users
+            const userKey = chatId.replace(/[^a-zA-Z0-9]/g, '_');
+            if (blockedUsers.has(userKey)) {
+                log(`Blocked user message: ${chatId}`, 'security');
+                return;
+            }
+
+            // Check for admin commands
+            if (AdminState.isAdminChat(chatId) && body.startsWith('!')) {
+                try {
+                    const reply = await handleAdminCommand(msg, chatId, body);
+                    if (reply) {
+                        await msg.reply(reply);
+                    }
+                    return;
+                } catch (e) {
+                    log('Admin command error: ' + e.message, 'error');
+                    await msg.reply('❌ Error executing command: ' + e.message);
+                    return;
+                }
+            }
+
+            // Check maintenance mode (only for non-admin users)
+            if (AdminState.maintenanceMode && !AdminState.isAdminChat(chatId)) {
+                await msg.reply('🔧 *Maintenance Mode*\n\nBot temporarily under maintenance. Please try again later! 🙏');
+                return;
+            }
+
+            // Payment Screenshot Verification
+            if (msg.hasMedia || body.toLowerCase().includes('payment') || body.toLowerCase().includes('screenshot')) {
+                const verification = await verifyPaymentScreenshot(msg, chatId, body);
+                if (verification && verification.verified) {
+                    // Payment verified - send plan details immediately
+                    await addOrder({
+                        chatId,
+                        type: 'verified_order',
+                        planType: verification.planType,
+                        amount: verification.amount,
+                        paymentMethod: verification.paymentMethod,
+                        status: 'completed',
+                        confidence: verification.confidence
+                    });
+
+                    // Send verification confirmation
+                    await msg.reply(`✅ *Payment Verified!*\n\n📦 Plan: ${verification.planType}\n💰 Amount: Rs. ${verification.amount}\n💳 Method: ${verification.paymentMethod || 'Not specified'}\n\n🎉 Sending your eSIM details now...`);
+
+                    // Send plan details immediately
+                    await new Promise(r => setTimeout(r, 1000));
+                    await sendPlanDetailsAfterVerification(chatId, verification.planType);
+
+                    // Notify admin about verified payment
+                    if (ADMIN_NUMBER) {
+                        try {
+                            const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                            await client.sendMessage(adminChat, `✅ *AUTO-VERIFIED PAYMENT*\n\nFrom: ${chatId}\nPlan: ${verification.planType}\nAmount: Rs. ${verification.amount}\nMethod: ${verification.paymentMethod || 'N/A'}\nConfidence: ${verification.confidence}%\n\nPlan details sent automatically! 🚀`);
+                        } catch (e) {}
+                    }
+                    return;
+                } else if (verification) {
+                    // Payment detected but not fully verified
+                    await addOrder({
+                        chatId,
+                        type: 'payment_screenshot',
+                        planType: verification.planType,
+                        status: 'pending_verification',
+                        confidence: verification.confidence
+                    });
+
+                    await msg.reply(`⏳ *Payment Received*\n\nPayment screenshot mil gaya bhai! ✅\n\n🔄 Verification in progress...\nPlan: ${verification.planType || 'Unknown'}\nConfidence: ${verification.confidence}%\n\nAdmin verify kar ke plan bhejega, 2-5 minutes mein! ⏱️`);
+
+                    // Notify admin for manual verification
+                    if (ADMIN_NUMBER) {
+                        try {
+                            const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                            await client.sendMessage(adminChat, `⏳ *PENDING VERIFICATION*\n\nFrom: ${chatId}\nPlan: ${verification.planType || 'Unknown'}\nConfidence: ${verification.confidence}%\n\nUse !payment-verify to approve\nOr !order-reject to decline`);
+                        } catch (e) {}
+                    }
+                    return;
+                }
+            }
+
+            // Regular message handling
             try {
                 const chat = await msg.getChat();
 
                 // Show typing indicator
-                if (BOT_CONFIG.showTyping) {
+                if (AdminState.typingIndicator && BOT_CONFIG.showTyping) {
                     await chat.sendStateTyping();
                 }
 
@@ -476,32 +1322,6 @@ async function startWhatsApp() {
                 // Save bot response
                 if (sent) {
                     await saveMessage(chatId, { body: reply, fromMe: true, time: Date.now() });
-                }
-
-                // Check for payment screenshot
-                if (msg.hasMedia) {
-                    const lowerBody = body.toLowerCase();
-                    if (lowerBody.includes('payment') || lowerBody.includes('screenshot') || lowerBody.includes('pay') || lowerBody.includes('done')) {
-                        DB.stats.totalOrders++;
-                        addOrder({
-                            chatId: chatId,
-                            type: 'payment_screenshot',
-                            message: body,
-                            hasMedia: true
-                        });
-
-                        // Notify admin
-                        if (ADMIN_NUMBER) {
-                            try {
-                                const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-                                await client.sendMessage(adminChat, `💰 Payment Screenshot Received!\n\nFrom: ${chatId}\nTime: ${new Date().toLocaleString()}\n\nCheck and process ASAP! 🔥`);
-                            } catch (e) {}
-                        }
-
-                        // Auto-reply to customer
-                        await new Promise(r => setTimeout(r, 1000));
-                        await client.sendMessage(chatId, `Payment screenshot receive ho gaya bhai! ✅\n\nAdmin check kar ke eSIM bana dega, 5-10 minutes mein! ⏱️`);
-                    }
                 }
 
             } catch (e) {

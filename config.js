@@ -61,6 +61,16 @@ const BUSINESS = {
     jazzcash: { number: 'YOUR_JAZZCASH_NUMBER', name: 'JazzCash', accountName: 'YOUR_NAME' },
     easypaisa: { number: 'YOUR_EASYPAISA_NUMBER', name: 'EasyPaisa', accountName: 'YOUR_NAME' },
     sadapay: { number: 'YOUR_SADAPAY_NUMBER', name: 'SadaPay', accountName: 'YOUR_NAME' }
+  },
+
+  // FAQs
+  faqs: {
+    pta: 'eSIM sirf Non-PTA devices pe work karti hai. PTA registered pe nahi chalegi.',
+    compatibility: 'Supported: iPhone XS/XR+, Samsung S20+, Pixel 4+. Non-PTA required.',
+    activation: 'QR code scan karne ke baad 2-5 minutes mein activate ho jati hai.',
+    refund: 'Refund policy: Agar eSIM activate nahi hoti toh full refund within 24 hours.',
+    validity: 'Saare plans 2 saal ki validity ke saath hain.',
+    devices: '500MB/1GB 1 device pe, 5GB 4 devices pe simultaneously use kar sakte hain.'
   }
 };
 
