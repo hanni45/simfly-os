@@ -588,9 +588,18 @@ const ADMIN_COMMANDS = {
 // Admin state
 const AdminState = {
     isAdminChat: (chatId) => {
-        const cleanAdmin = ADMIN_NUMBER ? ADMIN_NUMBER.replace(/\D/g, '') : '';
+        // Skip if ADMIN_NUMBER is placeholder or empty
+        if (!ADMIN_NUMBER ||
+            ADMIN_NUMBER.includes('YOUR_') ||
+            ADMIN_NUMBER.length < 10) {
+            console.log('Admin check: ADMIN_NUMBER not configured properly');
+            return false;
+        }
+        const cleanAdmin = ADMIN_NUMBER.replace(/\D/g, '');
         const cleanChat = chatId.replace(/\D/g, '').replace(/@.+$/, '');
-        return cleanAdmin === cleanChat;
+        const isAdmin = cleanAdmin === cleanChat;
+        if (isAdmin) console.log('Admin command detected from:', chatId);
+        return isAdmin;
     },
     maintenanceMode: false,
     autoReply: true,
@@ -983,6 +992,9 @@ async function blockUser(number, block) {
 
 const blockedUsers = new Set();
 
+// Temporary admin session storage
+AdminState.tempAdminChat = null;
+
 // ============================================
 // KEYWORD MATCHING
 // ============================================
@@ -1223,7 +1235,23 @@ async function startWhatsApp() {
             }
 
             // Check for admin commands
-            if (AdminState.isAdminChat(chatId) && body.startsWith('!')) {
+            // Method 1: Check by ADMIN_NUMBER
+            // Method 2: First message with "!admin YOUR_ADMIN_NUMBER" to activate
+            const isAdmin = AdminState.isAdminChat(chatId);
+
+            // Allow admin activation with secret key
+            if (body.startsWith('!admin ') && !isAdmin) {
+                const providedNumber = body.split(' ')[1];
+                if (providedNumber && providedNumber.replace(/\D/g, '') === ADMIN_NUMBER.replace(/\D/g, '')) {
+                    await msg.reply('✅ Admin mode activated for this session!\n\nYou can now use all admin commands.\nType !admin-help to see available commands.');
+                    AdminState.tempAdminChat = chatId;
+                    return;
+                }
+            }
+
+            const isTempAdmin = AdminState.tempAdminChat === chatId;
+
+            if ((isAdmin || isTempAdmin) && body.startsWith('!')) {
                 try {
                     const reply = await handleAdminCommand(msg, chatId, body);
                     if (reply) {
