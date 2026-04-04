@@ -77,10 +77,18 @@ let db = null;
 let firebaseInitialized = false;
 
 // Check for Firebase service account
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+if (process.env.FIREBASE_SERVICE_ACCOUNT && process.env.FIREBASE_SERVICE_ACCOUNT !== 'your_base64_encoded_service_account_here') {
     try {
         const admin = require('firebase-admin');
-        const serviceAccount = JSON.parse(Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT, 'base64').toString());
+
+        // Clean the base64 string (remove newlines/spaces)
+        const cleanBase64 = process.env.FIREBASE_SERVICE_ACCOUNT.replace(/\s/g, '');
+
+        // Decode base64
+        const decoded = Buffer.from(cleanBase64, 'base64').toString('utf8');
+
+        // Parse JSON
+        const serviceAccount = JSON.parse(decoded);
 
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
@@ -91,7 +99,10 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
         console.log('✓ Firebase initialized with service account');
     } catch (e) {
         console.error('✗ Firebase init failed:', e.message);
+        console.log('→ Falling back to local JSON storage');
     }
+} else {
+    console.log('→ No FIREBASE_SERVICE_ACCOUNT found, using local JSON storage');
 }
 
 // Fallback: Simple JSON-based storage
@@ -771,10 +782,11 @@ const server = app.listen(CONFIG.PORT, () => {
     log('='.repeat(50));
     log('SimFly OS v5.0 - Firebase + Groq Edition');
     log('AI: ' + (groqClient ? 'ENABLED ✓' : 'DISABLED ✗'));
-    log('Database: JSON File (data/database.json)');
-    log('Server: http://localhost:' + PORT);
+    log('Firebase: ' + (firebaseInitialized ? 'CONNECTED ✓' : 'LOCAL MODE'));
+    log('Server: http://localhost:' + CONFIG.PORT);
     log('='.repeat(50));
-    setTimeout(startWhatsApp, 2000);
+    // Start WhatsApp after server is ready
+    setTimeout(startWhatsApp, 3000);
 });
 
 process.on('SIGTERM', () => { log('SIGTERM received'); saveDB(); server.close(() => process.exit(0)); });
