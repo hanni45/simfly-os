@@ -2196,10 +2196,10 @@ app.get('/', (req, res) => {
                         groqStatusEl.className = 'badge badge-red';
                     } else if (data.groq.status === 'cooldown') {
                         const mins = Math.ceil(data.groq.cooldownRemaining / 60000);
-                        groqStatusEl.textContent = `⏳ AI: Cooldown (${mins}m)`;
+                        groqStatusEl.textContent = '\u23f3 AI: Cooldown (' + mins + 'm)';
                         groqStatusEl.className = 'badge badge-yellow';
                     } else if (data.groq.failures > 0) {
-                        groqStatusEl.textContent = `⚠️ AI: Warning (${data.groq.failures})`;
+                        groqStatusEl.textContent = '\u26a0\ufe0f AI: Warning (' + data.groq.failures + ')';
                         groqStatusEl.className = 'badge badge-yellow';
                     } else {
                         groqStatusEl.textContent = '🟢 AI: Active';
