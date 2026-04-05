@@ -3104,8 +3104,9 @@ async function startWhatsApp() {
             }
 
             // Payment Screenshot Verification
+            let verification = null;
             if (msg.hasMedia || body.toLowerCase().includes('payment') || body.toLowerCase().includes('screenshot')) {
-                const verification = await verifyPaymentScreenshot(msg, chatId, body);
+                verification = await verifyPaymentScreenshot(msg, chatId, body);
                 if (verification && verification.verified) {
                     // Payment verified - send plan details immediately
                     await addOrder({
@@ -3248,7 +3249,7 @@ async function startWhatsApp() {
                 profile.abandonedCartTime = Date.now();
             }
 
-            // 🖼️ HANDLE ISSUE SCREENSHOTS (analyzed by Gemini)
+            // 🖼️ HANDLE ISSUE SCREENSHOTS (analyzed by Gemini) - only if verification was done
             if (verification && verification.type === 'issue') {
                 await msg.reply(`🆘 *Issue Screenshot Received*\n
 Bhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔`);
