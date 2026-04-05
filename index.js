@@ -235,6 +235,12 @@ async function getPendingOrders() {
 // ============================================
 const pendingPayments = new Map();
 
+// Track admin verification messages for reply-based commands
+const adminVerificationMessages = new Map(); // messageId -> orderData
+
+// Store recent payment screenshots for admin review
+const paymentScreenshots = new Map(); // chatId -> {mediaData, timestamp, orderData}
+
 async function verifyPaymentScreenshot(msg, chatId, body) {
     const lowerBody = body.toLowerCase();
     const paymentKeywords = ['payment', 'screenshot', 'pay', 'done', 'send', 'sent', 'bheja', 'transfer', 'rs', 'rs.', 'amount'];
@@ -627,6 +633,68 @@ function log(msg, type = 'info') {
     State.logs.unshift(entry);
     if (State.logs.length > DB_CONFIG.maxLogs) State.logs.pop();
     console.log(`[${time}] [${type.toUpperCase()}] ${msg}`);
+}
+
+// ============================================
+// ADMIN REPLY COMMAND HANDLER
+// ============================================
+async function handleAdminReplyCommand(msg, chatId, body) {
+    try {
+        const quotedMsgId = msg.quotedMsg?.id?.id || msg.quotedMsgId;
+        if (!quotedMsgId) return false;
+
+        const verificationData = adminVerificationMessages.get(quotedMsgId);
+        if (!verificationData) return false;
+
+        const lowerBody = body.toLowerCase().trim();
+        const customerChatId = verificationData.chatId;
+        const planType = verificationData.planType;
+
+        if (lowerBody === '!approve' || lowerBody === 'approve' || lowerBody === 'yes' || lowerBody === 'verify') {
+            await updateOrderStatusByChat(customerChatId, 'completed', 'Payment verified by admin');
+            await sendPlanDetailsAfterVerification(customerChatId, planType);
+            await msg.reply(`✅ *Payment Approved!*\n\nCustomer: ${customerChatId}\nPlan: ${planType}\n\nPlan sent! 🚀`);
+            adminVerificationMessages.delete(quotedMsgId);
+            paymentScreenshots.delete(customerChatId);
+            log(`Payment approved by reply for ${customerChatId}`, 'admin');
+            return true;
+        }
+
+        if (lowerBody.startsWith('!reject') || lowerBody.startsWith('reject')) {
+            const reason = body.substring(body.indexOf(' ') + 1) || 'Payment rejected';
+            await updateOrderStatusByChat(customerChatId, 'rejected', reason);
+            await client.sendMessage(customerChatId, `❌ *Payment Update*\n\nBhai, payment verify nahi ho saka.\n\n*Reason:* ${reason}\n\nKoi masla ho toh dubara screenshot bhejain! 📱`);
+            await msg.reply(`❌ *Payment Rejected*\n\nCustomer: ${customerChatId}\nReason: ${reason}`);
+            adminVerificationMessages.delete(quotedMsgId);
+            paymentScreenshots.delete(customerChatId);
+            log(`Payment rejected by reply for ${customerChatId}`, 'admin');
+            return true;
+        }
+
+        if (lowerBody === '!check' || lowerBody === 'check' || lowerBody === 'history') {
+            const history = await getHistory(customerChatId);
+            const chatText = history.map(m => `${m.fromMe ? 'Bot' : 'Cust'}: ${m.body.slice(0, 100)}`).join('\n');
+            await msg.reply(`📋 *CHAT HISTORY*\n\nCustomer: ${customerChatId}\n\n${chatText.slice(-2000)}\n\n---\nUse *!approve* or *!reject [reason]*`);
+            return true;
+        }
+
+        return false;
+    } catch (e) {
+        log('Admin reply command error: ' + e.message, 'error');
+        return false;
+    }
+}
+
+async function updateOrderStatusByChat(chatId, status, note) {
+    if (DB) {
+        const snapshot = await DB.ref('orders').once('value');
+        const orders = snapshot.val() || {};
+        const orderEntry = Object.entries(orders).find(([id, o]) => o.chatId === chatId && o.status === 'pending_verification');
+        if (orderEntry) await DB.ref(`orders/${orderEntry[0]}`).update({ status, note, updatedAt: Date.now() });
+    } else {
+        const order = localDB.orders.find(o => o.chatId === chatId && o.status === 'pending_verification');
+        if (order) { order.status = status; order.note = note; order.updatedAt = Date.now(); }
+    }
 }
 
 // ============================================
@@ -1268,6 +1336,63 @@ function checkDeviceCompatibility(deviceName) {
 }
 
 // ============================================
+// 🤖 AI CHAT ANALYSIS FOR ADMIN
+// ============================================
+async function analyzeChatWithAI(chatId, chatContext) {
+    try {
+        const conversationText = chatContext.map(m => {
+            const sender = m.fromMe ? 'Bot' : 'Customer';
+            return `${sender}: ${m.body.slice(0, 200)}`;
+        }).join('\n');
+
+        const analysisPrompt = `Analyze this customer conversation for SimFly Pakistan eSIM sales.
+
+CONVERSATION:
+${conversationText.slice(-2000)}
+
+Provide a brief summary (2-3 bullet points) covering:
+1. What the customer wants/is asking
+2. Device compatibility mentioned
+3. Payment status
+4. Any concerns or objections
+
+Keep it short and professional.`;
+
+        if (isGroqEnabled()) {
+            const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model: GROQ_MODEL,
+                messages: [
+                    { role: 'system', content: 'You are a sales assistant analyzing customer conversations.' },
+                    { role: 'user', content: analysisPrompt }
+                ],
+                max_tokens: 300,
+                temperature: 0.5
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${GROQ_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000
+            });
+            return response.data.choices[0].message.content;
+        }
+        return generateBasicSummary(chatContext);
+    } catch (e) {
+        log('AI analysis error: ' + e.message, 'error');
+        return generateBasicSummary(chatContext);
+    }
+}
+
+function generateBasicSummary(chatContext) {
+    const customerMessages = chatContext.filter(m => !m.fromMe);
+    const botMessages = chatContext.filter(m => m.fromMe);
+    const hasDevice = customerMessages.some(m => /iphone|samsung|pixel|xs|xr|11|12|13|14|15|16|s20|s21|s22|s23|s24/i.test(m.body));
+    const hasPlan = customerMessages.some(m => /500mb|1gb|5gb|plan|package/i.test(m.body));
+    const hasPayment = customerMessages.some(m => /payment|screenshot|pay|sent|jazzcash|easypaisa|sadapay/i.test(m.body));
+    return `• Messages: ${customerMessages.length} customer, ${botMessages.length} bot\n• Device mentioned: ${hasDevice ? 'Yes' : 'No'}\n• Plan discussed: ${hasPlan ? 'Yes' : 'No'}\n• Payment reference: ${hasPayment ? 'Yes' : 'No'}`;
+}
+
+// ============================================
 // GROQ AI RESPONSE GENERATION
 // ============================================
 // Track API failures for circuit breaker
@@ -1695,6 +1820,12 @@ async function startWhatsApp() {
 
             const isTempAdmin = AdminState.tempAdminChat === chatId;
 
+            // Check for admin reply commands (reply to verification messages)
+            if (isAdmin || isTempAdmin) {
+                const replyHandled = await handleAdminReplyCommand(msg, chatId, body);
+                if (replyHandled) return;
+            }
+
             if ((isAdmin || isTempAdmin) && body.startsWith('!')) {
                 try {
                     const reply = await handleAdminCommand(msg, chatId, body);
@@ -1757,12 +1888,53 @@ async function startWhatsApp() {
 
                     await msg.reply(`⏳ *Payment Received*\n\nPayment screenshot mil gaya bhai! ✅\n\n🔄 Verification in progress...\nPlan: ${verification.planType || 'Unknown'}\nConfidence: ${verification.confidence}%\n\nAdmin verify kar ke plan bhejega, 2-5 minutes mein! ⏱️`);
 
-                    // Notify admin for manual verification
+                    // Notify admin for manual verification with AI analysis
                     if (ADMIN_NUMBER) {
                         try {
                             const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-                            await client.sendMessage(adminChat, `⏳ *PENDING VERIFICATION*\n\nFrom: ${chatId}\nPlan: ${verification.planType || 'Unknown'}\nConfidence: ${verification.confidence}%\n\nUse !payment-verify to approve\nOr !order-reject to decline`);
-                        } catch (e) {}
+
+                            // Get chat context for AI analysis
+                            const chatContext = await getChatContext(chatId, msg);
+                            const chatSummary = await analyzeChatWithAI(chatId, chatContext);
+
+                            // Create detailed verification message
+                            const verificationMsg = `⏳ *PENDING VERIFICATION*\n\n👤 *Customer:* ${chatId}\n📦 *Plan:* ${verification.planType || 'Unknown'}\n💰 *Amount:* Rs. ${verification.amount || 'N/A'}\n💳 *Method:* ${verification.paymentMethod || 'Unknown'}\n📊 *Confidence:* ${verification.confidence}%\n\n📝 *Original Message:* ${body.slice(0, 100)}${body.length > 100 ? '...' : ''}\n\n📊 *Chat Analysis:*\n${chatSummary}\n\n✅ *Quick Actions:*\nReply to this message with:\n• "!approve" - Verify & send plan\n• "!reject [reason]" - Decline payment\n• "!check" - View full chat history`;
+
+                            let sentMsg;
+
+                            // Forward screenshot if available
+                            if (msg.hasMedia) {
+                                const media = await msg.downloadMedia();
+                                if (media) {
+                                    paymentScreenshots.set(chatId, {
+                                        mediaData: media.data,
+                                        mediaType: media.mimetype,
+                                        timestamp: Date.now(),
+                                        orderData: verification
+                                    });
+                                    sentMsg = await client.sendMessage(adminChat, media, { caption: verificationMsg });
+                                } else {
+                                    sentMsg = await client.sendMessage(adminChat, verificationMsg);
+                                }
+                            } else {
+                                sentMsg = await client.sendMessage(adminChat, verificationMsg);
+                            }
+
+                            // Track verification message for reply handling
+                            if (sentMsg) {
+                                adminVerificationMessages.set(sentMsg.id.id, {
+                                    chatId: chatId,
+                                    planType: verification.planType,
+                                    amount: verification.amount,
+                                    timestamp: Date.now(),
+                                    originalMessageId: msg.id.id
+                                });
+                            }
+
+                            log(`Payment verification sent to admin for ${chatId}`, 'info');
+                        } catch (e) {
+                            log('Error sending verification to admin: ' + e.message, 'error');
+                        }
                     }
                     return;
                 }
