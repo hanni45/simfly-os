@@ -105,6 +105,359 @@ function updateGuide(planType, field, value) {
 // Initialize guides on startup
 loadCustomGuides();
 
+// ═══════════════════════════════════════════════════════
+// 🤖 HUMAN-LIKE CONVERSATION SYSTEM — 30 Features
+// ═══════════════════════════════════════════════════════
+
+// Feature 1,2,3: Typing Speed Variation + Random Delays + Thinking Status
+const HUMAN_CONFIG = {
+    enabled: true,
+    baseTypingSpeed: 30, // ms per character
+    typingVariation: 0.4, // ±40% variation
+    minDelay: 500, // minimum response delay
+    maxDelay: 8000, // maximum response delay
+    messageBreakupThreshold: 400, // characters
+    breakupDelay: 2000, // delay between message parts
+    typoChance: 0.08, // 8% chance of typo
+    emojiFrequency: 0.6, // 60% of messages have emojis
+    silentHoursStart: 1, // 1 AM
+    silentHoursEnd: 7, // 7 AM
+    casualPhrases: ['yar', 'bhai', 'acha', 'hmm', 'dekho', 'sunain', 'theek hai', 'koi baat nahi'],
+    pakistaniSlang: ['Jazbaati na ho', 'Chill karein', 'Masla nahi', 'Baat sunain', 'Ho jayega'],
+    nameAskThreshold: 3 // Ask name after 3 messages
+};
+
+// Feature 5: Intentional Typos Dictionary
+const TYPO_DICTIONARY = {
+    'haan': ['han', 'haan', 'hn'],
+    'bhejo': ['bhej', 'bhejo', 'bhejein'],
+    'theek': ['theek', 'tek', 'tik'],
+    'main': ['mein', 'main', 'mn'],
+    'aap': ['ap', 'aap', 'aapko'],
+    'kya': ['kya', 'kia', 'ka'],
+    'hai': ['hai', 'he', 'hy'],
+    'nahi': ['nahi', 'nai', 'nh'],
+    'bhai': ['bhai', 'bhaijan', 'bhae'],
+    'jaldi': ['jaldi', 'jld', 'jldi']
+};
+
+// Feature 10,11: User Profile & Context Memory
+const userProfiles = new Map();
+const conversationMemory = new Map();
+const messageHistory = new Map(); // For repeat detection
+
+// Feature 12: Purchase Stage Tracking
+const PURCHASE_STAGES = {
+    NEW: 'new',
+    GREETED: 'greeted',
+    DEVICE_CHECK: 'device_check',
+    PLAN_VIEW: 'plan_view',
+    PRICE_INQUIRY: 'price_inquiry',
+    PAYMENT_PENDING: 'payment_pending',
+    PAYMENT_SENT: 'payment_sent',
+    PURCHASED: 'purchased',
+    POST_PURCHASE: 'post_purchase',
+    SUPPORT: 'support'
+};
+
+// Feature 14: User Profile Builder
+class UserProfile {
+    constructor(chatId) {
+        this.chatId = chatId;
+        this.name = null;
+        this.device = null;
+        this.deviceCompatible = null;
+        this.location = null;
+        this.preferredPlan = null;
+        this.purchaseStage = PURCHASE_STAGES.NEW;
+        this.messageCount = 0;
+        this.firstSeen = Date.now();
+        this.lastSeen = Date.now();
+        this.conversationHistory = [];
+        this.mood = 'neutral'; // happy, frustrated, confused, urgent
+        this.sentiment = 0; // -10 to +10
+        this.urgency = 0; // 0-10
+        this.paymentIntent = 0; // 0-100
+        this.languageStyle = 'mixed'; // urdu, english, mixed
+        this.lastGreeting = null;
+        this.abandonedCartTime = null;
+        this.questionsAsked = new Set();
+        this.imagesSent = []; // Feature 26: Image context memory
+        this.typoStyle = Math.random() > 0.5; // Some users get more typos
+    }
+
+    updateMood(message) {
+        const lower = message.toLowerCase();
+
+        // Feature 11: Mood Detection
+        if (lower.match(/jaldi|urgent|kal chalna|aaj chahiye|emergency/)) {
+            this.mood = 'urgent';
+            this.urgency = 8;
+        } else if (lower.match(/problem|masla|error|nahi chal|issue/)) {
+            this.mood = 'frustrated';
+            this.sentiment -= 2;
+        } else if (lower.match(/shukriya|thanks|jazakallah|nice|great/)) {
+            this.mood = 'happy';
+            this.sentiment += 2;
+        } else if (lower.match(/samajh nahi|confused|kya karna|kaise/)) {
+            this.mood = 'confused';
+        }
+
+        // Feature 20: Payment Intent Scoring
+        if (lower.match(/buy|purchase|order|lena hai|book|payment/)) this.paymentIntent += 20;
+        if (lower.match(/price|kitne|cost|rate/)) this.paymentIntent += 10;
+        if (lower.match(/device|iphone|samsung/)) this.paymentIntent += 5;
+        if (lower.match(/screenshot bheja|payment kar|transfer/)) this.paymentIntent += 30;
+
+        // Cap values
+        this.sentiment = Math.max(-10, Math.min(10, this.sentiment));
+        this.urgency = Math.max(0, Math.min(10, this.urgency));
+        this.paymentIntent = Math.max(0, Math.min(100, this.paymentIntent));
+    }
+
+    detectLanguageStyle(message) {
+        const urduWords = /(hai|kya|kaise|nahi|acha|theek|shukriya|bhai|aap)/gi;
+        const englishWords = /(what|how|why|when|where|is|are|do|does|can|will)/gi;
+
+        const urduCount = (message.match(urduWords) || []).length;
+        const englishCount = (message.match(englishWords) || []).length;
+
+        if (urduCount > englishCount * 2) this.languageStyle = 'urdu';
+        else if (englishCount > urduCount * 2) this.languageStyle = 'english';
+        else this.languageStyle = 'mixed';
+    }
+
+    getGreeting() {
+        const hour = new Date().getHours();
+        const isFirstToday = !this.lastGreeting || (Date.now() - this.lastGreeting) > 86400000;
+
+        // Feature 22: Custom Greetings
+        if (isFirstToday) {
+            this.lastGreeting = Date.now();
+            if (hour < 12) return this.name ? `Assalam-o-Alaikum ${this.name} bhai! 🌅` : 'Assalam-o-Alaikum! 🌅';
+            if (hour < 17) return this.name ? `Assalam-o-Alaikum ${this.name} bhai! ☀️` : 'Assalam-o-Alaikum! ☀️';
+            return this.name ? `Assalam-o-Alaikum ${this.name} bhai! 🌙` : 'Assalam-o-Alaikum! 🌙';
+        }
+        return null;
+    }
+}
+
+// Feature 9: Name Memory
+function getUserProfile(chatId) {
+    if (!userProfiles.has(chatId)) {
+        userProfiles.set(chatId, new UserProfile(chatId));
+    }
+    return userProfiles.get(chatId);
+}
+
+// Helper for repeat detection - get last bot answer
+function getLastAnswer(chatId) {
+    const history = messageHistory.get(chatId);
+    if (history && history.length > 0) {
+        return history[history.length - 1];
+    }
+    return null;
+}
+    if (!userProfiles.has(chatId)) {
+        userProfiles.set(chatId, new UserProfile(chatId));
+    }
+    return userProfiles.get(chatId);
+}
+
+// Feature 4: Message Breakup
+function splitMessage(message) {
+    if (message.length <= HUMAN_CONFIG.messageBreakupThreshold) return [message];
+
+    // Split at natural boundaries
+    const parts = [];
+    let current = '';
+    const sentences = message.split(/(?<=[.!?])\s+/);
+
+    for (const sentence of sentences) {
+        if ((current + sentence).length > HUMAN_CONFIG.messageBreakupThreshold && current.length > 100) {
+            parts.push(current.trim());
+            current = sentence;
+        } else {
+            current += ' ' + sentence;
+        }
+    }
+    if (current.trim()) parts.push(current.trim());
+
+    return parts;
+}
+
+// Feature 5: Add Intentional Typos
+function addHumanTypos(text, profile) {
+    if (!profile.typoStyle) return text;
+    if (Math.random() > HUMAN_CONFIG.typoChance) return text;
+
+    let result = text;
+    for (const [correct, variants] of Object.entries(TYPO_DICTIONARY)) {
+        const regex = new RegExp(`\\b${correct}\\b`, 'gi');
+        if (regex.test(result) && Math.random() < 0.3) {
+            const typo = variants[Math.floor(Math.random() * variants.length)];
+            result = result.replace(regex, typo);
+        }
+    }
+    return result;
+}
+
+// Feature 6: Casual Language Insertion
+function addCasualLanguage(text, profile) {
+    const casual = HUMAN_CONFIG.casualPhrases;
+    const slang = HUMAN_CONFIG.pakistaniSlang;
+
+    // Add at beginning occasionally
+    if (Math.random() < 0.3 && !text.startsWith('Assalam')) {
+        const phrase = casual[Math.floor(Math.random() * casual.length)];
+        text = `${phrase}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+    }
+
+    // Add slang occasionally
+    if (Math.random() < 0.15 && profile.mood === 'frustrated') {
+        const phrase = slang[Math.floor(Math.random() * slang.length)];
+        text += ` ${phrase} 😊`;
+    }
+
+    return text;
+}
+
+// Feature 7: Emoji Pattern (not every message)
+function controlEmojis(text) {
+    if (Math.random() > HUMAN_CONFIG.emojiFrequency) {
+        // Remove emojis
+        return text.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+    }
+    return text;
+}
+
+// Feature 8: Previous Chat Memory
+async function getPreviousContext(chatId, profile) {
+    const history = await getHistory(chatId);
+    const lastConversation = history.filter(m => Date.now() - m.time < 86400000); // Last 24h
+
+    if (lastConversation.length > 0 && profile.messageCount === 1) {
+        const lastTopic = lastConversation[lastConversation.length - 1].body;
+        if (lastTopic.includes('device') && profile.device) {
+            return `Waise aapka ${profile.device} ka issue solve hogaya?`;
+        }
+        if (lastTopic.includes('plan') && profile.preferredPlan) {
+            return `Waise ${profile.preferredPlan} plan ke bare mein socha?`;
+        }
+    }
+    return null;
+}
+
+// Feature 17: Silent Hours Check
+function isSilentHours() {
+    const hour = new Date().getHours();
+    return hour >= HUMAN_CONFIG.silentHoursStart && hour < HUMAN_CONFIG.silentHoursEnd;
+}
+
+// Feature 18: Repeat Question Detection
+function isRepeatQuestion(chatId, question) {
+    const history = messageHistory.get(chatId) || [];
+    const normalized = question.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    for (const prev of history.slice(-10)) {
+        const prevNormalized = prev.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (normalized === prevNormalized || (normalized.length > 10 && prevNormalized.includes(normalized.substring(0, 10)))) {
+            return true;
+        }
+    }
+
+    // Add to history
+    history.push(question);
+    if (history.length > 20) history.shift();
+    messageHistory.set(chatId, history);
+
+    return false;
+}
+
+// Feature 19: Abandoned Cart Recovery
+async function checkAbandonedCart() {
+    for (const [chatId, profile] of userProfiles) {
+        if (profile.purchaseStage === PURCHASE_STAGES.PLAN_VIEW &&
+            profile.abandonedCartTime &&
+            Date.now() - profile.abandonedCartTime > 2 * 60 * 60 * 1000) { // 2 hours
+
+            if (client && client.sendMessage) {
+                await client.sendMessage(chatId, `${profile.name || 'Bhai'}, aapne ${profile.preferredPlan || 'plan'} dekha tha. Koi sawal hai toh pooch sakte hain! 🤔`);
+                profile.abandonedCartTime = null; // Reset
+            }
+        }
+    }
+}
+
+// Feature 23: Contextual Follow-ups
+function getContextualFollowup(profile) {
+    if (profile.purchaseStage === PURCHASE_STAGES.PLAN_VIEW && profile.paymentIntent > 30) {
+        return `Aapne ${profile.preferredPlan || 'plan'} dekha tha, soch lia?`;
+    }
+    if (profile.purchaseStage === PURCHASE_STAGES.PAYMENT_PENDING) {
+        return `Bhai, payment verification ho gaya hai. Guide chahiye toh "guide" likhein!`;
+    }
+    return null;
+}
+
+// Feature 25: Plan Recommendations
+function getPlanRecommendation(profile) {
+    if (profile.device && profile.device.includes('iPhone')) {
+        if (profile.device.match(/14|15|16/)) return '1GB';
+        return '500MB';
+    }
+    if (profile.device && profile.device.includes('Samsung')) {
+        return '1GB';
+    }
+    return '500MB';
+}
+
+// Feature 28: Multi-Turn Reasoning
+async function analyzeConversationDeep(chatId, profile, currentMessage) {
+    const history = await getHistory(chatId);
+    const recentMessages = history.slice(-5).map(m => m.body);
+
+    // Detect patterns across multiple messages
+    const allText = recentMessages.join(' ').toLowerCase();
+
+    if (allText.includes('price') && allText.includes('device') && !profile.preferredPlan) {
+        return { insight: 'user_comparing', action: 'show_comparison' };
+    }
+
+    if (allText.includes('problem') && allText.includes('again')) {
+        return { insight: 'recurring_issue', action: 'escalate' };
+    }
+
+    if (profile.paymentIntent > 60 && profile.purchaseStage === PURCHASE_STAGES.PRICE_INQUIRY) {
+        return { insight: 'ready_to_buy', action: 'push_payment' };
+    }
+
+    return { insight: 'none', action: 'normal' };
+}
+
+// Feature 29: Personality Adaptation
+function adaptTone(profile, response) {
+    if (profile.languageStyle === 'urdu') {
+        // More Urdu words
+        response = response.replace(/\bis\b/gi, 'hai').replace(/\bwhat\b/gi, 'kya');
+    }
+
+    if (profile.mood === 'frustrated') {
+        response = `Bhai, ${response} Masla nahi, solve kar dete hain! 💪`;
+    }
+
+    if (profile.mood === 'urgent') {
+        response = `Jaldi karte hain! ${response}`;
+    }
+
+    return response;
+}
+
+// Feature 30: Sentiment Analysis Auto-Escalation
+function shouldEscalate(profile) {
+    return profile.sentiment < -5 || profile.urgency > 7 || profile.mood === 'frustrated';
+}
+
 // ============================================
 // GEMINI AI IMAGE ANALYSIS SYSTEM
 // ============================================
@@ -390,7 +743,13 @@ function detectFBCampaign(messageBody) {
 
 function initializeAutomation() {
     startDailyReportScheduler();
-    log('🤖 Automation System Ready!', 'info');
+
+    // Feature 19: Abandoned Cart Recovery - Check every 30 minutes
+    setInterval(async () => {
+        await checkAbandonedCart();
+    }, 30 * 60 * 1000);
+
+    log('🤖 Automation System Ready! (Abandoned cart checker active)', 'info');
 }
 
 
@@ -1045,6 +1404,14 @@ const ADMIN_COMMANDS = {
     '!promo-list': { desc: 'List promo codes', usage: '!promo-list', category: 'plans' },
     '!promo-validate': { desc: 'Validate promo code', usage: '!promo-validate <code>', category: 'plans' },
 
+    // 🧠 HUMAN-LIKE FEATURES
+    '!human-mode': { desc: 'Toggle human-like features', usage: '!human-mode [on/off]', category: 'human' },
+    '!human-typo': { desc: 'Set typo chance', usage: '!human-typo [0-20]', category: 'human' },
+    '!human-emoji': { desc: 'Set emoji frequency', usage: '!human-emoji [0-100]', category: 'human' },
+    '!user-profile': { desc: 'View user profile', usage: '!user-profile <number>', category: 'human' },
+    '!mood-stats': { desc: 'Show mood distribution', usage: '!mood-stats', category: 'human' },
+    '!abandoned-carts': { desc: 'Check abandoned carts', usage: '!abandoned-carts', category: 'human' },
+
     // 📚 GUIDE MANAGEMENT — Edit eSIM guides
     '!guides': { desc: 'List all guides', usage: '!guides', category: 'guides' },
     '!guide-show': { desc: 'Show guide for plan', usage: '!guide-show <500MB|1GB|5GB>', category: 'guides' },
@@ -1517,7 +1884,7 @@ async function handleAdminCommand(msg, chatId, body) {
     }
 
     if (command === '!admin-help') {
-        return `📚 *ADMIN COMMAND CATEGORIES*\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !user-msg\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !maintenance\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n🔒 Test Board: !test-mode, !whitelist-add, !whitelist-list\n📈 Analytics: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n❓ Help: !help, !cmd\n\nUse !help <category> for details`;
+        return `📚 *ADMIN COMMAND CATEGORIES*\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !user-msg\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !maintenance\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n🔒 Test Board: !test-mode, !whitelist-add, !whitelist-list\n🧠 Human Features: !human-mode, !user-profile, !mood-stats\n📈 Analytics: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n❓ Help: !help, !cmd\n\nUse !help <category> for details`;
     }
 
     if (command === '!about') {
@@ -1562,6 +1929,55 @@ async function handleAdminCommand(msg, chatId, body) {
         }, 2000);
 
         return `🛑 *INITIATING SHUTDOWN*\n\nReason: ${reason}\n\n⏱️ Bot will shut down in 2 seconds...`;
+    }
+
+    // 🧠 HUMAN-LIKE FEATURES COMMANDS
+    if (command === '!human-mode') {
+        if (!args) {
+            return `🤖 *HUMAN-LIKE FEATURES*\n\nStatus: ${HUMAN_CONFIG.enabled ? '✅ ON' : '❌ OFF'}\nTypo Chance: ${(HUMAN_CONFIG.typoChance * 100).toFixed(0)}%\nEmoji Frequency: ${(HUMAN_CONFIG.emojiFrequency * 100).toFixed(0)}%\n\nUsage:\n• !human-mode on/off - Toggle features\n• !human-typo 10 - Set typo chance (0-20)\n• !human-emoji 50 - Set emoji frequency (0-100)`;
+        }
+        const action = args.toLowerCase();
+        if (action === 'on') {
+            HUMAN_CONFIG.enabled = true;
+            return `✅ *Human-like features ENABLED*\n\nBot will now:\n• Add intentional typos\n• Vary typing speed\n• Use casual language\n• Control emoji usage\n• Show thinking status`;
+        } else if (action === 'off') {
+            HUMAN_CONFIG.enabled = false;
+            return `⏸️ *Human-like features DISABLED*\n\nBot will reply in standard mode.`;
+        }
+        return '❌ Usage: !human-mode [on/off]';
+    }
+
+    if (command === '!human-typo') {
+        const chance = parseInt(args);
+        if (isNaN(chance) || chance < 0 || chance > 20) return '❌ Usage: !human-typo [0-20]';
+        HUMAN_CONFIG.typoChance = chance / 100;
+        return `✅ Typo chance set to ${chance}%`;
+    }
+
+    if (command === '!human-emoji') {
+        const freq = parseInt(args);
+        if (isNaN(freq) || freq < 0 || freq > 100) return '❌ Usage: !human-emoji [0-100]';
+        HUMAN_CONFIG.emojiFrequency = freq / 100;
+        return `✅ Emoji frequency set to ${freq}%`;
+    }
+
+    if (command === '!user-profile') {
+        if (!args) return '❌ Usage: !user-profile <number>';
+        const number = args.replace(/\D/g, '');
+        const userChatId = `${number}@c.us`;
+        const profile = userProfiles.get(userChatId);
+        if (!profile) return `❌ No profile found for ${number}`;
+
+        return `👤 *USER PROFILE*\n\n📱 Number: ${number}\n📝 Name: ${profile.name || 'Unknown'}\n📱 Device: ${profile.device || 'Not specified'}\n💰 Purchase Stage: ${profile.purchaseStage}\n💵 Payment Intent: ${profile.paymentIntent}%\n😊 Mood: ${profile.mood}\n📊 Sentiment: ${profile.sentiment}/10\n🚨 Urgency: ${profile.urgency}/10\n🗣️ Language: ${profile.languageStyle}\n💬 Messages: ${profile.messageCount}\n📅 First Seen: ${new Date(profile.firstSeen).toLocaleDateString()}`;
+    }
+
+    if (command === '!mood-stats') {
+        const moods = {};
+        for (const [id, profile] of userProfiles) {
+            moods[profile.mood] = (moods[profile.mood] || 0) + 1;
+        }
+        const stats = Object.entries(moods).map(([mood, count]) => `${mood}: ${count}`).join('\n');
+        return `📊 *USER MOOD DISTRIBUTION*\n\n${stats || 'No data yet'}\n\nTotal profiles: ${userProfiles.size}`;
     }
 
     // 🚪 TEST BOARD / PRIVATE MODE COMMANDS
@@ -1871,7 +2287,7 @@ function formatUptime(ms) {
 
 function formatHelp(category) {
     if (category === 'all') {
-        return `📚 *AVAILABLE COMMANDS* (${Object.keys(ADMIN_COMMANDS).length} total)\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !active-users\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !logs\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n🔒 Test Board: !test-mode, !whitelist-add, !whitelist-list\n📈 Stats: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n\nUse !help <category> for more details\nExample: !help broadcast`;
+        return `📚 *AVAILABLE COMMANDS* (${Object.keys(ADMIN_COMMANDS).length} total)\n\n📢 Broadcast: !broadcast, !bc, !bc-img\n👤 Users: !users, !user-info, !active-users\n📊 Orders: !orders, !order-pending, !order-approve\n🤖 Bot: !status, !restart, !logs\n💎 Plans: !plans\n📚 Guides: !guides, !guide-show, !guide-promo, !guide-send\n🔒 Test Board: !test-mode, !whitelist-add, !whitelist-list\n🧠 Human Features: !human-mode, !user-profile, !mood-stats\n📈 Stats: !stats, !report, !revenue\n💳 Payment: !payment-verify, !payment-pending\n🔧 Database: !db-status, !db-backup\n🛡️ Security: !block, !unblock, !blocked\n\nUse !help <category> for more details\nExample: !help broadcast`;
     }
 
     if (category === 'testboard') {
@@ -1880,6 +2296,10 @@ function formatHelp(category) {
 
     if (category === 'guides') {
         return `📚 *GUIDE MANAGEMENT COMMANDS*\n\n!guides - List all guides\n!guide-show <plan> - Show guide config\n!guide-preview <plan> - Preview full guide\n!guide-promo <plan> | <code> - Update promo code\n!guide-provider <plan> | <name> - Update provider\n!guide-links <plan> | <iOS> | <Android> - Update app links\n!guide-send <number> | <plan> - Send guide manually\n!guide-enable <plan> - Enable auto-send\n!guide-disable <plan> - Disable auto-send\n!guide-reset <plan> - Reset to default\n\nExample: !guide-promo 1GB | NEWCODE123`;
+    }
+
+    if (category === 'human') {
+        return `🧠 *HUMAN-LIKE FEATURES COMMANDS*\n\n!human-mode [on/off] - Toggle human features\n!human-typo [0-20] - Set typo chance %\n!human-emoji [0-100] - Set emoji frequency %\n!user-profile <number> - View user profile\n!mood-stats - View mood distribution\n\n*Features:*\n• Typing speed variation\n• Intentional typos\n• Casual language\n• Emoji control\n• Repeat detection\n• Abandoned cart recovery\n• Mood detection\n• Sentiment analysis`;
     }
 
     const commands = Object.entries(ADMIN_COMMANDS)
@@ -2776,6 +3196,53 @@ async function startWhatsApp() {
                 }
             }
 
+            // ═══════════════════════════════════════════════════════
+            // 🤖 HUMAN-LIKE FEATURES INTEGRATION
+            // ═══════════════════════════════════════════════════════
+
+            // Feature 30: Silent Hours Check (skip auto-reply 1AM-7AM)
+            if (isSilentHours() && !body.toLowerCase().includes('urgent')) {
+                log(`Silent hours - not replying to ${chatId}`, 'info');
+                return;
+            }
+
+            // Get user profile for personalization
+            const profile = getUserProfile(chatId);
+            profile.updateMood(body);
+            profile.detectLanguageStyle(body);
+            profile.messageCount++;
+            profile.lastSeen = Date.now();
+
+            // Feature 8: Previous Chat Memory
+            const previousContext = await getPreviousContext(chatId, profile);
+            if (previousContext && profile.messageCount === 1) {
+                await msg.reply(previousContext);
+            }
+
+            // Feature 18: Repeat Question Detection
+            if (isRepeatQuestion(chatId, body)) {
+                await msg.reply(`Bhai, maine pehle bataya tha 😊 ${getLastAnswer(chatId) || 'Agar samajh nahi aaya toh "support" likhein!'}`);
+                return;
+            }
+
+            // Feature 9: Ask for Name (after 3 messages if not known)
+            if (!profile.name && profile.messageCount === HUMAN_CONFIG.nameAskThreshold) {
+                await msg.reply('Bhai, aapka naam kya hai? Main apna dost samajhta hoon 😊');
+            }
+
+            // Feature 30: Sentiment Auto-Escalation
+            if (shouldEscalate(profile) && ADMIN_NUMBER) {
+                try {
+                    const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                    await client.sendMessage(adminChat, `🚨 *FRUSTRATED USER ALERT*\n\nCustomer: ${chatId}\nMood: ${profile.mood}\nSentiment: ${profile.sentiment}\nMessage: ${body.slice(0, 100)}\n\n_Customer may need immediate attention!_`);
+                } catch (e) {}
+            }
+
+            // Feature 19: Track Abandoned Cart
+            if (profile.purchaseStage === PURCHASE_STAGES.PLAN_VIEW && !profile.abandonedCartTime) {
+                profile.abandonedCartTime = Date.now();
+            }
+
             // 🖼️ HANDLE ISSUE SCREENSHOTS (analyzed by Gemini)
             if (verification && verification.type === 'issue') {
                 await msg.reply(`🆘 *Issue Screenshot Received*\n
@@ -2882,20 +3349,81 @@ Bhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔`);
                 // Get AI response with full context
                 const reply = await getAIResponseWithContext(body, chatId, chatContext);
 
-                // Wait for response delay
-                await new Promise(r => setTimeout(r, BOT_CONFIG.responseDelay));
+                // ═══════════════════════════════════════════════════════
+                // 🤖 APPLY HUMAN-LIKE TRANSFORMATIONS
+                // ═══════════════════════════════════════════════════════
 
-                // Send reply
-                const sent = await msg.reply(reply);
+                // Feature 22: Custom Greeting
+                let finalReply = reply;
+                const customGreeting = profile.getGreeting();
+                if (customGreeting && profile.messageCount <= 2) {
+                    finalReply = `${customGreeting}\n\n${reply}`;
+                }
+
+                // Feature 5: Add Intentional Typos
+                finalReply = addHumanTypos(finalReply, profile);
+
+                // Feature 6: Casual Language
+                finalReply = addCasualLanguage(finalReply, profile);
+
+                // Feature 7: Control Emojis
+                finalReply = controlEmojis(finalReply);
+
+                // Feature 29: Adapt Tone
+                finalReply = adaptTone(profile, finalReply);
+
+                // Feature 4: Message Breakup (send long messages in parts)
+                const messageParts = splitMessage(finalReply);
+
+                // 🛡️ ANTI-BAN: Feature 1,2: Random Delay + Typing Variation
+                for (let i = 0; i < messageParts.length; i++) {
+                    const part = messageParts[i];
+
+                    // Calculate human-like typing time based on message length
+                    const baseTime = part.length * HUMAN_CONFIG.baseTypingSpeed;
+                    const variation = baseTime * HUMAN_CONFIG.typingVariation * (Math.random() * 2 - 1);
+                    const typingTime = Math.max(HUMAN_CONFIG.minDelay, Math.min(HUMAN_CONFIG.maxDelay, baseTime + variation));
+
+                    // Feature 3: Show "thinking" for complex questions
+                    if (part.length > 100 || body.includes('?')) {
+                        await chat.sendStateTyping();
+                    }
+
+                    // Human-like delay
+                    await new Promise(r => setTimeout(r, typingTime));
+
+                    // Send message part
+                    const sent = await msg.reply(part);
+
+                    // Save bot response
+                    if (sent) {
+                        await saveMessage(chatId, { body: part, fromMe: true, time: Date.now() });
+
+                        // Feature 18: Remember last answer for repeat detection
+                        const history = messageHistory.get(chatId) || [];
+                        history.push(part);
+                        messageHistory.set(chatId, history);
+                    }
+
+                    // Feature 4: Delay between message parts
+                    if (i < messageParts.length - 1) {
+                        await new Promise(r => setTimeout(r, HUMAN_CONFIG.breakupDelay));
+                    }
+                }
 
                 // Clear typing indicator
                 try {
                     await chat.clearState();
                 } catch (e) {}
 
-                // Save bot response
-                if (sent) {
-                    await saveMessage(chatId, { body: reply, fromMe: true, time: Date.now() });
+                // Feature 23: Contextual Follow-ups
+                const followup = getContextualFollowup(profile);
+                if (followup && Math.random() < 0.3) { // 30% chance
+                    setTimeout(async () => {
+                        try {
+                            await client.sendMessage(chatId, followup);
+                        } catch (e) {}
+                    }, 30000); // Send after 30 seconds
                 }
 
                 // Schedule followup for this user (if not admin)
