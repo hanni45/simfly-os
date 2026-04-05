@@ -241,6 +241,92 @@ const adminVerificationMessages = new Map(); // messageId -> orderData
 // Store recent payment screenshots for admin review
 const paymentScreenshots = new Map(); // chatId -> {mediaData, timestamp, orderData}
 
+// ============================================
+// 🔄 AUTO-FOLLOWUP SYSTEM
+// ============================================
+const pendingFollowups = new Map(); // chatId -> {lastMessageTime, stage, attempts}
+const FOLLOWUP_DELAY_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_FOLLOWUP_ATTEMPTS = 2;
+
+// Start followup checker
+function startFollowupChecker() {
+    setInterval(async () => {
+        if (!State.followupEnabled || !client || !State.isReady) return;
+        await checkAndSendFollowups();
+    }, 5 * 60 * 1000); // Check every 5 minutes
+    log('Auto-followup system started', 'info');
+}
+
+async function checkAndSendFollowups() {
+    const now = Date.now();
+
+    for (const [chatId, data] of pendingFollowups) {
+        // Skip if already at max attempts
+        if (data.attempts >= MAX_FOLLOWUP_ATTEMPTS) {
+            pendingFollowups.delete(chatId);
+            continue;
+        }
+
+        // Check if enough time has passed
+        const timeSinceLastMessage = now - data.lastMessageTime;
+        if (timeSinceLastMessage < FOLLOWUP_DELAY_MS) continue;
+
+        // Check if user has replied since (get fresh history)
+        const history = await getHistory(chatId);
+        const lastCustomerMessage = history.filter(m => !m.fromMe).pop();
+        if (lastCustomerMessage && lastCustomerMessage.time > data.lastMessageTime) {
+            // User has replied, update tracking
+            pendingFollowups.delete(chatId);
+            continue;
+        }
+
+        // Send followup based on stage
+        data.attempts++;
+        await sendFollowupMessage(chatId, data.stage, data.attempts);
+
+        // Update last message time to prevent immediate re-trigger
+        data.lastMessageTime = now;
+
+        log(`Followup #${data.attempts} sent to ${chatId}`, 'info');
+    }
+}
+
+async function sendFollowupMessage(chatId, stage, attempt) {
+    let message = '';
+
+    if (attempt === 1) {
+        // Gentle first reminder
+        message = `Bhai, koi confusion ho toh pooch sakte hain! 😊\n\nMain yahan houn aapki help ke liye.\n\nKya aap:\n📱 Abhi bhi plan lena chahte hain?\n❓ Koi sawal poochna chahte hain?\n\nBas reply karein!`;
+    } else {
+        // Second reminder with urgency
+        message = `Bhai, main wait kar raha houn! ⏰\n\nAgar aap abhi busy hain toh koi baat nahi, jab time mile tab message karein.\n\nSimFly Pakistan - 24/7 available! 🚀`;
+    }
+
+    try {
+        await client.sendMessage(chatId, message);
+        await saveMessage(chatId, { body: message, fromMe: true, time: Date.now() });
+    } catch (e) {
+        log('Followup send error: ' + e.message, 'error');
+    }
+}
+
+function scheduleFollowup(chatId, stage) {
+    if (!State.followupEnabled) return;
+    pendingFollowups.set(chatId, {
+        lastMessageTime: Date.now(),
+        stage: stage,
+        attempts: 0
+    });
+    log(`Followup scheduled for ${chatId}`, 'info');
+}
+
+function cancelFollowup(chatId) {
+    if (pendingFollowups.has(chatId)) {
+        pendingFollowups.delete(chatId);
+        log(`Followup cancelled for ${chatId}`, 'info');
+    }
+}
+
 async function verifyPaymentScreenshot(msg, chatId, body) {
     const lowerBody = body.toLowerCase();
     const paymentKeywords = ['payment', 'screenshot', 'pay', 'done', 'send', 'sent', 'bheja', 'transfer', 'rs', 'rs.', 'amount'];
@@ -423,7 +509,8 @@ const State = {
     botPaused: false, // Admin pause/resume control
     pausedBy: null, // Which admin paused
     pauseReason: null, // Why paused
-    userSessions: new Map() // Track user conversation state
+    userSessions: new Map(), // Track user conversation state
+    followupEnabled: true // Auto-followup feature
 };
 
 // ============================================
@@ -857,6 +944,35 @@ async function handleAdminCommand(msg, chatId, body) {
             AdminState.typingIndicator = args.toLowerCase() === 'on';
         }
         return `⌨️ Typing Indicator: ${AdminState.typingIndicator ? 'ENABLED' : 'DISABLED'}`;
+    }
+
+    // 🔄 FOLLOWUP SYSTEM
+    if (command === '!followup-status') {
+        const pending = pendingFollowups.size;
+        return `🔄 *FOLLOWUP SYSTEM*\n\nStatus: ${State.followupEnabled ? '✅ ENABLED' : '❌ DISABLED'}\nPending Followups: ${pending}\nDelay: 10 minutes\nMax Attempts: ${MAX_FOLLOWUP_ATTEMPTS}`;
+    }
+
+    if (command === '!followup-on') {
+        State.followupEnabled = true;
+        return `🔄 Auto-followup: ✅ ENABLED\n\nBot will automatically send followup messages after 10 minutes of inactivity.`;
+    }
+
+    if (command === '!followup-off') {
+        State.followupEnabled = false;
+        return `🔄 Auto-followup: ❌ DISABLED\n\nNo automatic followup messages will be sent.`;
+    }
+
+    if (command === '!followup-pending') {
+        const list = Array.from(pendingFollowups.entries()).map(([id, data]) => {
+            return `• ${id} - Stage: ${data.stage}, Attempts: ${data.attempts}`;
+        }).join('\n') || 'No pending followups';
+        return `⏳ *PENDING FOLLOWUPS*\n\n${list}`;
+    }
+
+    if (command === '!followup-clear') {
+        const count = pendingFollowups.size;
+        pendingFollowups.clear();
+        return `🗑️ *Followups Cleared*\n\n${count} pending followups removed.`;
     }
 
     // 📈 ANALYTICS
@@ -1752,6 +1868,9 @@ async function startWhatsApp() {
                     }
                 }, 3000);
             }
+
+            // Start auto-followup system
+            startFollowupChecker();
         });
 
         client.on('disconnected', (reason) => {
@@ -2067,6 +2186,11 @@ async function startWhatsApp() {
                 // Save bot response
                 if (sent) {
                     await saveMessage(chatId, { body: reply, fromMe: true, time: Date.now() });
+                }
+
+                // Schedule followup for this user (if not admin)
+                if (!isAdmin && !isTempAdmin) {
+                    scheduleFollowup(chatId, 'general');
                 }
 
             } catch (e) {
