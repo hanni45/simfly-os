@@ -29,6 +29,300 @@ const {
     isFirebaseEnabled
 } = require('./config');
 
+// Add this code after line 30 in index.js (after the imports)
+
+// Import Automation Config
+const { AUTOMATION } = require('./config');
+
+// ============================================
+// GEMINI AI IMAGE ANALYSIS SYSTEM
+// ============================================
+const geminiState = {
+    currentApiIndex: 0,
+    failures: new Map(),
+    lastUsed: null
+};
+
+async function analyzeImageWithGemini(imageData, mimeType, chatId, userMessage) {
+    if (!isGeminiEnabled || !isGeminiEnabled()) {
+        log('Gemini not configured, using manual verification', 'warn');
+        return { type: 'unknown', confidence: 0, text: null };
+    }
+
+    const prompt = `Analyze this image carefully. Determine if it is:
+
+1. A PAYMENT SCREENSHOT - Shows payment confirmation
+2. AN ISSUE/PROBLEM screenshot - Shows errors or problems
+
+Respond format:
+TYPE: [PAYMENT or ISSUE or UNKNOWN]
+CONFIDENCE: [0-100]
+DESCRIPTION: [Brief description]
+TEXT_EXTRACTED: [Important text]
+AMOUNT: [If payment, amount?]
+METHOD: [Payment method?]`;
+
+    for (let i = 0; i < GEMINI_API_KEYS.length; i++) {
+        const apiIndex = (geminiState.currentApiIndex + i) % GEMINI_API_KEYS.length;
+        const apiKey = GEMINI_API_KEYS[apiIndex];
+        const apiConfig = GEMINI_APIS[apiIndex];
+
+        if (!apiKey || apiKey.length < 20 || apiKey.includes('YOUR_GEMINI')) continue;
+
+        try {
+            log(`Trying Gemini API ${apiIndex + 1}/10: ${apiConfig.name}`, 'info');
+
+            const response = await axios.post(
+                `https://generativelanguage.googleapis.com/v1beta/${apiConfig.model}:generateContent?key=${apiKey}`,
+                {
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            {
+                                inline_data: {
+                                    mime_type: mimeType,
+                                    data: imageData
+                                }
+                            }
+                        ]
+                    }],
+                    generationConfig: { temperature: 0.2, maxOutputTokens: 500 }
+                },
+                { timeout: 15000 }
+            );
+
+            const resultText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            const analysis = parseGeminiResponse(resultText);
+
+            geminiState.currentApiIndex = apiIndex;
+            geminiState.lastUsed = Date.now();
+
+            log(`Gemini analysis successful: ${analysis.type}`, 'info');
+            return analysis;
+
+        } catch (error) {
+            log(`Gemini API ${apiIndex + 1} failed`, 'error');
+            continue;
+        }
+    }
+
+    return { type: 'unknown', confidence: 0, text: null, error: 'All APIs failed' };
+}
+
+function parseGeminiResponse(text) {
+    const result = { type: 'unknown', confidence: 0, description: '', textExtracted: '', amount: null, method: null };
+    try {
+        const typeMatch = text.match(/TYPE:\s*(\w+)/i);
+        if (typeMatch) {
+            const type = typeMatch[1].toUpperCase();
+            if (type === 'PAYMENT') result.type = 'payment';
+            else if (type === 'ISSUE') result.type = 'issue';
+        }
+        const confMatch = text.match(/CONFIDENCE:\s*(\d+)/i);
+        if (confMatch) result.confidence = parseInt(confMatch[1]);
+        const descMatch = text.match(/DESCRIPTION:\s*([^\n]+)/i);
+        if (descMatch) result.description = descMatch[1].trim();
+        const textMatch = text.match(/TEXT_EXTRACTED:\s*([^\n]+)/i);
+        if (textMatch) result.textExtracted = textMatch[1].trim();
+        const amountMatch = text.match(/AMOUNT:\s*Rs?\.?\s*(\d+)/i);
+        if (amountMatch) result.amount = parseInt(amountMatch[1]);
+        const methodMatch = text.match(/METHOD:\s*([^\n]+)/i);
+        if (methodMatch) {
+            const method = methodMatch[1].trim().toLowerCase();
+            if (method.includes('jazzcash')) result.method = 'JazzCash';
+            else if (method.includes('easypaisa')) result.method = 'EasyPaisa';
+            else if (method.includes('sadapay')) result.method = 'SadaPay';
+        }
+    } catch (e) {
+        log('Error parsing Gemini response: ' + e.message, 'error');
+    }
+    return result;
+}
+
+async function handleImageWithAIAnalysis(msg, chatId, body) {
+    try {
+        if (!msg.hasMedia) return null;
+        const media = await msg.downloadMedia();
+        if (!media || !media.data) return null;
+
+        log(`Analyzing image from ${chatId} with Gemini AI...`, 'info');
+        const analysis = await analyzeImageWithGemini(media.data, media.mimetype, chatId, body);
+
+        if (analysis.type === 'payment' && analysis.confidence >= 60) {
+            let planType = null;
+            if (analysis.amount === 130) planType = '500MB';
+            else if (analysis.amount === 400) planType = '1GB';
+            else if (analysis.amount === 1500) planType = '5GB';
+
+            return {
+                isPayment: true,
+                isIssue: false,
+                planType: planType,
+                amount: analysis.amount,
+                method: analysis.method,
+                confidence: analysis.confidence,
+                extractedText: analysis.textExtracted,
+                mediaData: media.data,
+                mediaType: media.mimetype
+            };
+        } else if (analysis.type === 'issue' && analysis.confidence >= 50) {
+            return {
+                isPayment: false,
+                isIssue: true,
+                description: analysis.description,
+                extractedText: analysis.textExtracted,
+                confidence: analysis.confidence
+            };
+        }
+
+        return {
+            isPayment: true,
+            isIssue: false,
+            planType: null,
+            amount: null,
+            method: null,
+            confidence: analysis.confidence,
+            extractedText: analysis.textExtracted,
+            mediaData: media.data,
+            mediaType: media.mimetype
+        };
+    } catch (e) {
+        log('Image AI analysis error: ' + e.message, 'error');
+        return null;
+    }
+}
+
+async function resolveIssueWithAI(extractedText, description, chatId) {
+    try {
+        const issuePrompt = `Customer issue: ${description}
+Extracted text: ${extractedText}
+Provide solution in Roman Urdu + English mix, 2-3 lines, with emojis.`;
+
+        const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+            model: 'llama-3.1-8b-instant',
+            messages: [
+                { role: 'system', content: 'You are SimFly Pakistan support assistant.' },
+                { role: 'user', content: issuePrompt }
+            ],
+            max_tokens: 300,
+            temperature: 0.7
+        }, {
+            headers: {
+                'Authorization': `Bearer ${GROQ_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 10000
+        });
+
+        return response.data.choices[0].message.content;
+    } catch (e) {
+        return `Bhai, samajh nahi aaya. 😅
+
+*Try:*
+1️⃣ Data Roaming ON
+2️⃣ Device restart
+3️⃣ Settings > Cellular > Add eSIM
+
+Agar masla ho toh "support" likhein!`;
+    }
+}
+
+// ============================================
+// AUTOMATION SYSTEM
+// ============================================
+const automationState = {
+    dailyReportSent: false,
+    lastBackupDate: null,
+    abandonedCarts: new Map(),
+    conversionAttempts: new Map(),
+    userTags: new Map(),
+    lastEscalation: new Map()
+};
+
+function startDailyReportScheduler() {
+    if (!AUTOMATION?.dailyReportTime) return;
+    const [hours, minutes] = AUTOMATION.dailyReportTime.split(':');
+    const now = new Date();
+    const reportTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+    if (reportTime < now) reportTime.setDate(reportTime.getDate() + 1);
+    const delay = reportTime - now;
+    setTimeout(() => {
+        sendDailyReport();
+        setInterval(sendDailyReport, 24 * 60 * 60 * 1000);
+    }, delay);
+}
+
+async function sendDailyReport() {
+    if (!ADMIN_NUMBER) return;
+    try {
+        const stats = await getStats();
+        const orders = await getAllOrders();
+        const today = new Date().setHours(0, 0, 0, 0);
+        const todayOrders = orders.filter(o => new Date(o.createdAt).setHours(0, 0, 0, 0) === today);
+        const revenue = todayOrders.reduce((sum, o) => sum + (o.amount || 0), 0);
+
+        const reportMsg = `📈 *DAILY SALES REPORT*
+
+📅 Date: ${new Date().toLocaleDateString()}
+💰 Revenue: Rs. ${revenue}
+📦 Orders: ${todayOrders.length}
+👥 New Users: ${Object.keys(localDB.users || {}).length}
+⏳ Pending: ${(await getPendingOrders()).length}
+✅ Completed: ${todayOrders.filter(o => o.status === 'completed').length}
+❌ Rejected: ${todayOrders.filter(o => o.status === 'rejected').length}
+
+*Plan Breakdown:*
+• 500MB: ${todayOrders.filter(o => o.planType === '500MB').length}
+• 1GB: ${todayOrders.filter(o => o.planType === '1GB').length}
+• 5GB: ${todayOrders.filter(o => o.planType === '5GB').length}
+
+_Kal subha tak sab theek!_ ✅`;
+
+        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+        await client.sendMessage(adminChat, reportMsg);
+        log('Daily report sent', 'info');
+    } catch (e) {
+        log('Daily report error: ' + e.message, 'error');
+    }
+}
+
+function trackAbandonedCart(chatId, planType) {
+    if (!AUTOMATION?.abandonedCartEnabled) return;
+    automationState.abandonedCarts.set(chatId, { planType, timestamp: Date.now() });
+}
+
+function clearAbandonedCart(chatId) {
+    automationState.abandonedCarts.delete(chatId);
+}
+
+async function checkForEscalation(chatId, messageCount) {
+    if (!AUTOMATION?.escalationEnabled) return false;
+    const lastEscalation = automationState.lastEscalation.get(chatId) || 0;
+    if (messageCount - lastEscalation >= AUTOMATION.escalationAfterAttempts) {
+        if (ADMIN_NUMBER) {
+            const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+            await client.sendMessage(adminChat, `🚨 *ESCALATION: Customer ${chatId} needs help after ${messageCount} messages*`);
+            automationState.lastEscalation.set(chatId, messageCount);
+        }
+        return true;
+    }
+    return false;
+}
+
+function detectFBCampaign(messageBody) {
+    if (!AUTOMATION?.fbTrackingEnabled) return null;
+    for (const code of AUTOMATION.fbCampaignCodes) {
+        if (messageBody.includes(code)) return code;
+    }
+    return null;
+}
+
+function initializeAutomation() {
+    startDailyReportScheduler();
+    log('🤖 Automation System Ready!', 'info');
+}
+
+
 // ============================================
 // FIREBASE SETUP
 // ============================================
@@ -2059,6 +2353,9 @@ async function startWhatsApp() {
 
             // Start auto-followup system
             startFollowupChecker();
+
+            // Initialize complete automation system
+            initializeAutomation();
         });
 
         client.on('disconnected', (reason) => {

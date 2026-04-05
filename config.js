@@ -11,6 +11,37 @@ const GROQ_API_KEY = 'YOUR_GROQ_API_KEY_HERE';
 const GROQ_MODEL = 'llama-3.3-70b-versatile'; // ya 'llama-3.1-8b-instant' for faster
 
 // ═══════════════════════════════════════════════════════
+// GEMINI AI — makersuite.google.com se FREE API keys lo
+// ═══════════════════════════════════════════════════════
+// 10 API slots with fallback system - if one fails, next one tries
+const GEMINI_APIS = [
+  { key: 'GEMINI_API_KEY_1', name: 'Gemini-2.5-Flash', model: 'models/gemini-2.5-flash' },
+  { key: 'GEMINI_API_KEY_2', name: 'Gemini-2.5-Pro', model: 'models/gemini-2.5-pro' },
+  { key: 'GEMINI_API_KEY_3', name: 'Gemini-2.0-Flash', model: 'models/gemini-2.0-flash' },
+  { key: 'GEMINI_API_KEY_4', name: 'Gemini-2.0-Flash-001', model: 'models/gemini-2.0-flash-001' },
+  { key: 'GEMINI_API_KEY_5', name: 'Gemini-2.0-Flash-Lite-001', model: 'models/gemini-2.0-flash-lite-001' },
+  { key: 'GEMINI_API_KEY_6', name: 'Gemini-2.0-Flash-Lite', model: 'models/gemini-2.0-flash-lite' },
+  { key: 'GEMINI_API_KEY_7', name: 'Gemini-2.5-Flash-Lite', model: 'models/gemini-2.5-flash-lite' },
+  { key: 'GEMINI_API_KEY_8', name: 'Gemini-2.5-Flash-Backup', model: 'models/gemini-2.5-flash' },
+  { key: 'GEMINI_API_KEY_9', name: 'Gemini-2.0-Flash-Backup', model: 'models/gemini-2.0-flash' },
+  { key: 'GEMINI_API_KEY_10', name: 'Gemini-2.5-Pro-Backup', model: 'models/gemini-2.5-pro' }
+];
+
+// Get actual API keys from environment variables or hardcode here
+const GEMINI_API_KEYS = [
+  process.env.GEMINI_API_KEY_1 || 'YOUR_GEMINI_API_KEY_1_HERE',
+  process.env.GEMINI_API_KEY_2 || 'YOUR_GEMINI_API_KEY_2_HERE',
+  process.env.GEMINI_API_KEY_3 || 'YOUR_GEMINI_API_KEY_3_HERE',
+  process.env.GEMINI_API_KEY_4 || 'YOUR_GEMINI_API_KEY_4_HERE',
+  process.env.GEMINI_API_KEY_5 || 'YOUR_GEMINI_API_KEY_5_HERE',
+  process.env.GEMINI_API_KEY_6 || 'YOUR_GEMINI_API_KEY_6_HERE',
+  process.env.GEMINI_API_KEY_7 || 'YOUR_GEMINI_API_KEY_7_HERE',
+  process.env.GEMINI_API_KEY_8 || 'YOUR_GEMINI_API_KEY_8_HERE',
+  process.env.GEMINI_API_KEY_9 || 'YOUR_GEMINI_API_KEY_9_HERE',
+  process.env.GEMINI_API_KEY_10 || 'YOUR_GEMINI_API_KEY_10_HERE'
+];
+
+// ═══════════════════════════════════════════════════════
 // ADMIN WHATSAPP NUMBER
 // Format: 923057258561 (92 = Pakistan code, baki number)
 // ═══════════════════════════════════════════════════════
@@ -40,6 +71,53 @@ YOUR_FIREBASE_PRIVATE_KEY_HERE
 // APP / WEBHOOK URL (Railway/Render URL deploy ke baad)
 // ═══════════════════════════════════════════════════════
 const APP_URL = 'YOUR_APP_URL_HERE';
+
+// ═══════════════════════════════════════════════════════
+// AUTOMATION SETTINGS
+// ═══════════════════════════════════════════════════════
+const AUTOMATION = {
+  // Daily Report Time (24-hour format)
+  dailyReportTime: '21:00', // 9 PM every night
+
+  // Abandoned Cart Recovery
+  abandonedCartDelay: 30 * 60 * 1000, // 30 minutes
+  abandonedCartEnabled: true,
+
+  // Auto-escalation after failed attempts
+  escalationAfterAttempts: 3,
+  escalationEnabled: true,
+
+  // FB Ads Tracking
+  fbTrackingEnabled: true,
+  fbCampaignCodes: ['simfly_ad1', 'simfly_ad2', 'simfly_spring'],
+
+  // Stock Alert Threshold
+  stockAlertThreshold: 10, // Alert if > 10 orders in a day
+  stockAlertEnabled: true,
+
+  // Scheduled Promotions
+  promotionsEnabled: true,
+  promotionSchedule: [
+    { time: '12:00', message: '☀️ Lunch Break Offer! Order abhi aur jaldi activate karein!' },
+    { time: '21:00', message: '🌙 Raat ka Special! Aaj order karein, kal morning mein activate!' }
+  ],
+
+  // Customer Tagging
+  autoTaggingEnabled: true,
+
+  // Study Mode (Admin - reduced notifications)
+  studyModeEnabled: false,
+  studyModeHours: '08:00-18:00', // Admin notifications silenced during these hours
+
+  // Auto-Backup
+  autoBackupEnabled: true,
+  backupTime: '23:00', // 11 PM daily
+
+  // Conversion Recovery
+  conversionRecoveryEnabled: true,
+  recoveryDelay: 24 * 60 * 60 * 1000, // 24 hours
+  recoveryDiscount: '10%' // Offer discount
+};
 
 // ═══════════════════════════════════════════════════════
 // SIMFLY BUSINESS CONFIG
@@ -265,6 +343,11 @@ module.exports = {
   APP_URL,
   BUSINESS,
   BOT_CONFIG,
+  AUTOMATION,
+
+  // Gemini AI Config
+  GEMINI_APIS,
+  GEMINI_API_KEYS,
 
   // Content
   SYSTEM_PROMPT,
@@ -276,5 +359,6 @@ module.exports = {
 
   // Helpers
   isGroqEnabled: () => GROQ_API_KEY && GROQ_API_KEY.length > 10,
-  isFirebaseEnabled: () => FIREBASE && FIREBASE.projectId && FIREBASE.privateKey
+  isFirebaseEnabled: () => FIREBASE && FIREBASE.projectId && FIREBASE.privateKey,
+  isGeminiEnabled: () => GEMINI_API_KEYS.some(key => key && key.length > 10 && !key.includes('YOUR_GEMINI'))
 };
