@@ -1799,8 +1799,8 @@ async function getChatContext(chatId, currentMsg) {
             return true;
         });
 
-        // Return last 20 unique messages
-        return unique.slice(-20);
+        // Return last 50 unique messages for full context understanding
+        return unique.slice(-50);
     } catch (e) {
         log('Error getting chat context: ' + e.message, 'error');
         return [];
@@ -2163,7 +2163,7 @@ async function getAIResponse(userMessage, chatId) {
 }
 
 // ============================================
-// 🤖 AI RESPONSE WITH FULL CONTEXT
+// 🤖 AI RESPONSE WITH FULL CONTEXT - AI FIRST
 // ============================================
 async function getAIResponseWithContext(userMessage, chatId, chatContext) {
     const msg = userMessage.toLowerCase();
@@ -2171,35 +2171,39 @@ async function getAIResponseWithContext(userMessage, chatId, chatContext) {
     // 🛡️ ANTI-BAN: Check rate limit first
     if (!checkRateLimit(chatId)) {
         log(`Rate limit hit for ${chatId}, slowing down`, 'warn');
-        // Add extra delay for rate-limited chats
         await new Promise(r => setTimeout(r, 5000));
     }
 
-    // Check for exact keywords first (faster responses)
-    const keywordResponse = findKeywordResponse(userMessage);
-    if (keywordResponse) return keywordResponse;
-
-    // Check FAQ responses
-    const faqResponse = findFAQResponse(userMessage);
-    if (faqResponse) return faqResponse;
-
-    // Build conversation context for AI
+    // Build full conversation context for AI
     let conversationHistory = [];
     if (chatContext && chatContext.length > 0) {
-        // Convert to AI format
+        // Use ALL messages for full context understanding (not just last 10)
         conversationHistory = chatContext.map(m => ({
             role: m.fromMe ? 'assistant' : 'user',
             content: m.body
         }));
     }
 
-    // Try Groq if enabled
+    // 🧠 AI FIRST: Try Groq with FULL context for intelligent understanding
     if (BOT_CONFIG.useAI && isGroqEnabled()) {
         const groqResponse = await getGroqResponseWithContext(userMessage, chatId, conversationHistory);
-        if (groqResponse) return groqResponse;
+        if (groqResponse) {
+            log(`AI responded for ${chatId}: "${groqResponse.substring(0, 50)}..."`, 'info');
+            return groqResponse;
+        }
     }
 
-    // Fallback to templates
+    // Only use keywords/FAQ as fallback for very short messages or if AI fails
+    if (msg.length <= 3) {
+        const keywordResponse = findKeywordResponse(userMessage);
+        if (keywordResponse) return keywordResponse;
+    }
+
+    // Check FAQ for specific questions (as secondary fallback)
+    const faqResponse = findFAQResponse(userMessage);
+    if (faqResponse) return faqResponse;
+
+    // Final fallback to templates
     if (BOT_CONFIG.useTemplates) {
         return await getTemplateResponse(userMessage, chatId);
     }
@@ -2226,10 +2230,10 @@ async function getGroqResponseWithContext(userMessage, chatId, conversationHisto
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            // Build messages with full conversation context (last 10 messages)
+            // Build messages with FULL conversation context (last 30 messages for complete understanding)
             const messages = [
                 { role: 'system', content: SYSTEM_PROMPT },
-                ...conversationHistory.slice(-10),
+                ...conversationHistory.slice(-30),
                 { role: 'user', content: userMessage }
             ];
 
