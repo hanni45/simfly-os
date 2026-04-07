@@ -3374,41 +3374,16 @@ Bhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔`);
                 return;
             }
 
-            // 👤 NEW USER FLOW - Single Message
+            // 👤 NATURAL CONVERSATION FLOW - Let AI handle everything
             const isNew = await isNewUser(chatId);
             const userSession = getUserSession(chatId);
 
+            // Just track user session info for AI context, don't force flow
             if (isNew && userSession.state === 'new') {
-                // First message - just ask for device (SINGLE MESSAGE)
-                setUserSession(chatId, { state: 'awaiting_device', step: 1, firstMessage: body });
-
-                const welcomeMsg = `Assalam-o-Alaikum! 👋\n\nSimFly Pakistan mein khush amdeed.\n\nAapka device kaunsa hai? (Jaise: iPhone 14, Samsung S23, etc.)`;
-
-                await msg.reply(welcomeMsg);
-                await saveMessage(chatId, { body: welcomeMsg, fromMe: true, time: Date.now() });
-                return; // Don't send any other messages
+                setUserSession(chatId, { state: 'active', step: 1, firstMessage: body });
             }
 
-            if (userSession.state === 'awaiting_device') {
-                // User replied with device name
-                const deviceCheck = checkDeviceCompatibility(body);
-                setUserSession(chatId, { state: 'active', step: 2, device: deviceCheck.matchedDevice, deviceCompatible: deviceCheck.compatible });
-
-                let deviceResponse = '';
-                if (deviceCheck.compatible === true) {
-                    deviceResponse = `✅ ${deviceCheck.matchedDevice} mein eSIM work karegi!\n\nAgar aapka device eSIM supported hai toh hamare plans kaam karenge.\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400\n💎 5GB - Rs. 1500\n\nKaunsa plan dekhna hai?`;
-                } else if (deviceCheck.compatible === false) {
-                    deviceResponse = `❌ ${deviceCheck.matchedDevice} mein eSIM work nahi karegi.\n\n${deviceCheck.note}\n\nKoi aur device hai aapke paas?`;
-                } else {
-                    deviceResponse = `🤔 Device check kar leta hoon...\n\nAgar aapka device eSIM supported hai toh hamare plans kaam karenge.\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400\n💎 5GB - Rs. 1500`;
-                }
-
-                await msg.reply(deviceResponse);
-                await saveMessage(chatId, { body: deviceResponse, fromMe: true, time: Date.now() });
-                return;
-            }
-
-            // Extract device info if mentioned
+            // Extract device info if mentioned (for AI context only)
             const deviceCheck = checkDeviceCompatibility(body);
             if (deviceCheck.compatible !== null && userSession.device !== deviceCheck.matchedDevice) {
                 setUserSession(chatId, { ...userSession, device: deviceCheck.matchedDevice, deviceCompatible: deviceCheck.compatible });
