@@ -474,13 +474,201 @@ function shouldEscalate(profile) {
 }
 
 // ============================================
-// GEMINI AI IMAGE ANALYSIS SYSTEM
+// GEMINI AI IMAGE ANALYSIS SYSTEM with AUTO MODEL SELECTION
 // ============================================
 const geminiState = {
     currentApiIndex: 0,
     failures: new Map(),
-    lastUsed: null
+    lastUsed: null,
+    workingModels: new Map() // apiKey -> { model: string, tested: boolean }
 };
+
+// Vision-capable model patterns (models that support image input)
+const VISION_MODEL_PATTERNS = [
+    /gemini-2\.5-pro/i,
+    /gemini-2\.5-flash/i,
+    /gemini-2\.0-pro/i,
+    /gemini-2\.0-flash/i,
+    /gemini-1\.5-pro/i,
+    /gemini-1\.5-flash/i,
+    /gemini-pro-vision/i
+];
+
+// Models to exclude (embedding, audio only, etc.)
+const EXCLUDED_MODEL_PATTERNS = [
+    /embedding/i,
+    /aqa/i,
+    /tts/i,
+    /stt/i,
+    /audio/i,
+    /text-embedding/i
+];
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🔍 AUTO MODEL SELECTION SYSTEM for Gemini API
+// Automatically discovers and uses vision-capable models
+// ════════════════════════════════════════════════════════════════════════════
+
+// Fetch available models from Gemini API
+async function fetchGeminiModels(apiKey) {
+    try {
+        const response = await axios.get(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`,
+            { timeout: 10000 }
+        );
+
+        if (response.data?.models) {
+            return response.data.models.map(m => ({
+                name: m.name,
+                displayName: m.displayName || m.name,
+                description: m.description || '',
+                supportedGenerationMethods: m.supportedGenerationMethods || [],
+                inputTokenLimit: m.inputTokenLimit,
+                outputTokenLimit: m.outputTokenLimit
+            }));
+        }
+        return [];
+    } catch (e) {
+        log(`Failed to fetch models: ${e.message}`, 'error');
+        return [];
+    }
+}
+
+// Filter for vision-capable models
+function filterVisionModels(models) {
+    return models.filter(model => {
+        const name = model.name.toLowerCase();
+
+        // Check if it's a vision model
+        const isVisionModel = VISION_MODEL_PATTERNS.some(pattern => pattern.test(name));
+
+        // Check if it's excluded
+        const isExcluded = EXCLUDED_MODEL_PATTERNS.some(pattern => pattern.test(name));
+
+        // Check if it supports generateContent (required for image analysis)
+        const supportsGeneration = model.supportedGenerationMethods?.includes('generateContent');
+
+        return isVisionModel && !isExcluded && supportsGeneration;
+    });
+}
+
+// Test if a model can actually analyze images
+async function testVisionModel(apiKey, modelName) {
+    try {
+        // Simple test with a minimal image (1x1 transparent pixel)
+        const testImage = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+        const response = await axios.post(
+            `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`,
+            {
+                contents: [{
+                    parts: [
+                        { text: 'What is in this image? Reply with one word.' },
+                        {
+                            inline_data: {
+                                mime_type: 'image/png',
+                                data: testImage
+                            }
+                        }
+                    ]
+                }],
+                generationConfig: { temperature: 0.1, maxOutputTokens: 10 }
+            },
+            { timeout: 10000 }
+        );
+
+        const hasResponse = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        return !!hasResponse;
+    } catch (e) {
+        log(`Model ${modelName} test failed: ${e.response?.status || e.message}`, 'warn');
+        return false;
+    }
+}
+
+// Get or discover working vision model for an API key
+async function getWorkingVisionModel(apiKey) {
+    // Check cache first
+    if (geminiState.workingModels.has(apiKey)) {
+        const cached = geminiState.workingModels.get(apiKey);
+        if (cached.tested && cached.model) {
+            log(`Using cached working model: ${cached.model}`, 'info');
+            return cached.model;
+        }
+    }
+
+    log('🔍 Auto-discovering vision-capable models...', 'info');
+
+    // Step 1: Fetch all available models
+    const allModels = await fetchGeminiModels(apiKey);
+    if (allModels.length === 0) {
+        // Fallback to hardcoded models if API fails
+        return 'models/gemini-2.0-flash';
+    }
+
+    log(`Found ${allModels.length} total models`, 'info');
+
+    // Step 2: Filter for vision models
+    const visionModels = filterVisionModels(allModels);
+    log(`Found ${visionModels.length} vision-capable models`, 'info');
+
+    if (visionModels.length === 0) {
+        log('No vision models found, using fallback', 'warn');
+        return 'models/gemini-2.0-flash';
+    }
+
+    // Step 3: Sort by preference (newer models first)
+    const preferredModels = [
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.0-pro',
+        'gemini-2.0-flash',
+        'gemini-1.5-pro',
+        'gemini-1.5-flash'
+    ];
+
+    visionModels.sort((a, b) => {
+        const aIndex = preferredModels.findIndex(p => a.name.includes(p));
+        const bIndex = preferredModels.findIndex(p => b.name.includes(p));
+        return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    });
+
+    // Step 4: Test models until one works
+    for (const model of visionModels.slice(0, 5)) { // Test top 5
+        log(`Testing model: ${model.name}...`, 'info');
+        const works = await testVisionModel(apiKey, model.name);
+
+        if (works) {
+            log(`✅ Working model found: ${model.name}`, 'info');
+            geminiState.workingModels.set(apiKey, { model: model.name, tested: true });
+            return model.name;
+        }
+    }
+
+    // Fallback if none work
+    log('No working vision model found, using fallback', 'warn');
+    geminiState.workingModels.set(apiKey, { model: 'models/gemini-2.0-flash', tested: true });
+    return 'models/gemini-2.0-flash';
+}
+
+// Clear cached models (useful for forcing rediscovery)
+function clearWorkingModelsCache() {
+    geminiState.workingModels.clear();
+    log('Working models cache cleared', 'info');
+}
+
+// Get model discovery status for admin
+function getModelDiscoveryStatus() {
+    const status = [];
+    for (const [apiKey, info] of geminiState.workingModels) {
+        const maskedKey = apiKey.slice(0, 10) + '...' + apiKey.slice(-5);
+        status.push({
+            key: maskedKey,
+            model: info.model,
+            tested: info.tested
+        });
+    }
+    return status;
+}
 
 async function analyzeImageWithGemini(imageData, mimeType, chatId, userMessage) {
     if (!isGeminiEnabled || !isGeminiEnabled()) {
@@ -501,18 +689,28 @@ TEXT_EXTRACTED: [Important text]
 AMOUNT: [If payment, amount?]
 METHOD: [Payment method?]`;
 
+    // Try each API key with auto model selection
     for (let i = 0; i < GEMINI_API_KEYS.length; i++) {
         const apiIndex = (geminiState.currentApiIndex + i) % GEMINI_API_KEYS.length;
         const apiKey = GEMINI_API_KEYS[apiIndex];
-        const apiConfig = GEMINI_APIS[apiIndex];
 
         if (!apiKey || apiKey.length < 20 || apiKey.includes('YOUR_GEMINI')) continue;
 
         try {
-            log(`Trying Gemini API ${apiIndex + 1}/10: ${apiConfig.name}`, 'info');
+            log(`🔍 Trying Gemini API ${apiIndex + 1}/${GEMINI_API_KEYS.length} with auto model selection...`, 'info');
+
+            // 🔥 AUTO MODEL SELECTION: Discover working vision model
+            const workingModel = await getWorkingVisionModel(apiKey);
+
+            if (!workingModel) {
+                log(`No working vision model found for API key ${apiIndex + 1}`, 'warn');
+                continue;
+            }
+
+            log(`📸 Using model: ${workingModel} for screenshot analysis`, 'info');
 
             const response = await axios.post(
-                `https://generativelanguage.googleapis.com/v1beta/${apiConfig.model}:generateContent?key=${apiKey}`,
+                `https://generativelanguage.googleapis.com/v1beta/${workingModel}:generateContent?key=${apiKey}`,
                 {
                     contents: [{
                         parts: [
@@ -533,14 +731,24 @@ METHOD: [Payment method?]`;
             const resultText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const analysis = parseGeminiResponse(resultText);
 
+            // Cache this working model for future use
             geminiState.currentApiIndex = apiIndex;
             geminiState.lastUsed = Date.now();
 
-            log(`Gemini analysis successful: ${analysis.type}`, 'info');
+            log(`✅ Gemini analysis successful using ${workingModel}: ${analysis.type}`, 'info');
             return analysis;
 
         } catch (error) {
-            log(`Gemini API ${apiIndex + 1} failed`, 'error');
+            const statusCode = error.response?.status;
+            const errorMsg = error.response?.data?.error?.message || error.message;
+
+            log(`❌ Gemini API ${apiIndex + 1} failed: ${statusCode} - ${errorMsg}`, 'error');
+
+            // If model not found or invalid, clear cache and try next
+            if (statusCode === 404 || statusCode === 400) {
+                geminiState.workingModels.delete(apiKey);
+            }
+
             continue;
         }
     }
@@ -2266,6 +2474,11 @@ const ADMIN_COMMANDS = {
     '!verification-stats': { desc: 'Payment verification statistics', usage: '!verification-stats', category: 'payments' },
     '!vstats': { desc: 'Verification stats (short)', usage: '!vstats', category: 'payments' },
 
+    // 🤖 GEMINI MODEL MANAGEMENT
+    '!gemini-models': { desc: 'Show discovered Gemini vision models', usage: '!gemini-models', category: 'ai' },
+    '!gemini-refresh': { desc: 'Refresh Gemini model cache', usage: '!gemini-refresh', category: 'ai' },
+    '!gemini-test': { desc: 'Test specific Gemini model', usage: '!gemini-test <model-name>', category: 'ai' },
+
     // 🤖 BOT CONTROLS
     '!status': { desc: 'Show bot status', usage: '!status', category: 'bot' },
     '!restart': { desc: 'Restart the bot', usage: '!restart', category: 'bot' },
@@ -2730,6 +2943,59 @@ async function handleAdminCommand(msg, chatId, body) {
             AdminState.aiEnabled = args.toLowerCase() === 'on';
         }
         return `🤖 AI Responses: ${AdminState.aiEnabled ? 'ENABLED' : 'DISABLED'}`;
+    }
+
+    // 🤖 GEMINI MODEL MANAGEMENT
+    if (command === '!gemini-models') {
+        const status = getModelDiscoveryStatus();
+        if (status.length === 0) {
+            return '🤖 *Gemini Model Discovery*\n\nNo models discovered yet.\n\nFirst screenshot will trigger auto-discovery.\n\nOr use !gemini-refresh to discover now.';
+        }
+
+        const models = status.map(s =>
+            `🔑 *${s.key}*\n   Model: \`${s.model}\`\n   Status: ${s.tested ? '✅ Tested' : '⏳ Untested'}`
+        ).join('\n\n');
+
+        return `🤖 *Gemini Vision Models Discovered*\n\n${models}\n\n*Auto-discovery finds best vision-capable model for each API key.*`;
+    }
+
+    if (command === '!gemini-refresh') {
+        clearWorkingModelsCache();
+
+        // Trigger discovery for first key
+        if (GEMINI_API_KEYS[0]) {
+            const firstKey = GEMINI_API_KEYS.find(k => k && k.length > 20 && !k.includes('YOUR_GEMINI'));
+            if (firstKey) {
+                await msg.reply('🔍 Discovering vision-capable models...');
+                const model = await getWorkingVisionModel(firstKey);
+                return `✅ Model discovery complete!\n\nFound working model: \`${model}\`\n\n*Next screenshot will use auto-selected model.*`;
+            }
+        }
+
+        return '❌ No valid Gemini API keys found for testing.';
+    }
+
+    if (command === '!gemini-test') {
+        if (!args) {
+            return '❌ Usage: !gemini-test <model-name>\n\nExample: !gemini-test models/gemini-2.0-flash\n\nOr leave empty to test all discovered models.';
+        }
+
+        const apiKey = GEMINI_API_KEYS.find(k => k && k.length > 20 && !k.includes('YOUR_GEMINI'));
+        if (!apiKey) {
+            return '❌ No valid Gemini API key available for testing.';
+        }
+
+        await msg.reply(`🧪 Testing model: \`${args}\`...`);
+
+        const works = await testVisionModel(apiKey, args);
+
+        if (works) {
+            // Save to cache
+            geminiState.workingModels.set(apiKey, { model: args, tested: true });
+            return `✅ Model \`${args}\` is working!\n\nCached for future use.`;
+        } else {
+            return `❌ Model \`${args}\` failed test.\n\nTry another model or let auto-discovery find one.`;
+        }
     }
 
     if (command === '!typing') {
