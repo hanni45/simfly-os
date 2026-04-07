@@ -161,11 +161,11 @@ const BUSINESS = {
     { id: 'plan_5gb', name: '5GB', data: '5GB', price: 1500, duration: '2 Years', icon: '💎', popular: false, label: 'MEGA', devices: 4, auto: false }
   ],
 
-  // Payment Methods
+  // Payment Methods - Updated Numbers
   payments: {
-    jazzcash: { number: 'YOUR_JAZZCASH_NUMBER', name: 'JazzCash', accountName: 'YOUR_NAME' },
-    easypaisa: { number: 'YOUR_EASYPAISA_NUMBER', name: 'EasyPaisa', accountName: 'YOUR_NAME' },
-    sadapay: { number: 'YOUR_SADAPAY_NUMBER', name: 'SadaPay', accountName: 'YOUR_NAME' }
+    jazzcash: { number: '03456754090', name: 'JazzCash', accountName: 'SimFly Pakistan' },
+    easypaisa: { number: '03466544374', name: 'EasyPaisa', accountName: 'SimFly Pakistan' },
+    sadapay: { number: '03116400376', name: 'SadaPay', accountName: 'SimFly Pakistan' }
   },
 
   // FAQs
@@ -183,15 +183,15 @@ const BUSINESS = {
 // EDITABLE eSIM GUIDES — Admin can edit these via commands
 // ═══════════════════════════════════════════════════════
 const ESIIM_GUIDES = {
-  // 500MB Plan Guide
+  // 500MB Plan Guide - Provider hidden until after purchase
   '500MB': {
     enabled: true,
     promoCode: 'AS48928',
-    provider: 'Eskimo',
-    iosAppLink: 'https://apps.apple.com/app/eskimo-esim/id123456789',
-    androidAppLink: 'https://play.google.com/store/apps/details?id=com.eskimo.travel',
+    provider: 'eSIM Provider',
+    iosAppLink: 'Link will be provided after purchase',
+    androidAppLink: 'Link will be provided after purchase',
     qrCodeData: '500MB_PLAN_QR_CODE_DATA',
-    // Full guide template — use {{placeholders}} for dynamic values
+    // Full guide template — sent AFTER payment
     template: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
 
 ━━━━━━━━━━━━━━━━━━━
@@ -204,10 +204,10 @@ const ESIIM_GUIDES = {
 📱 Devices: {{devices}} Device
 
 ━━━━━━━━━━━━━━━━━━━
-🔗 *{{provider}} APP DOWNLOAD*
+🔗 *APP DOWNLOAD*
 ━━━━━━━━━━━━━━━━━━━
-📲 iOS: {{iosLink}}
-📲 Android: {{androidLink}}
+📲 iOS: App Store pe "eSIM" search karein
+📲 Android: Play Store pe "eSIM" search karein
 
 ━━━━━━━━━━━━━━━━━━━
 🎁 *PROMO CODE*
@@ -219,7 +219,7 @@ Code: *{{promoCode}}*
 ━━━━━━━━━━━━━━━━━━━
 
 *Step 1: Download App*
-➜ Download {{provider}} App from above links
+➜ eSIM app download karein from app store
 
 *Step 2: Create Account*
 ➜ Open app → Sign up with your number
@@ -240,7 +240,7 @@ Code: *{{promoCode}}*
 ━━━━━━━━━━━━━━━━━━━
 ⚠️ *IMPORTANT NOTES*
 ━━━━━━━━━━━━━━━━━━━
-✅ Device must be Non-PTA
+✅ Device must support eSIM
 ✅ iPhone XS/XR or above
 ✅ Data Roaming MUST be ON
 ✅ Activation takes 2-5 minutes
@@ -258,9 +258,9 @@ Type "support" for assistance
   '1GB': {
     enabled: true,
     promoCode: 'SA1GB',
-    provider: 'Eskimo',
-    iosAppLink: 'https://apps.apple.com/app/eskimo-esim/id123456789',
-    androidAppLink: 'https://play.google.com/store/apps/details?id=com.eskimo.travel',
+    provider: 'eSIM Provider',
+    iosAppLink: 'Link will be provided after purchase',
+    androidAppLink: 'Link will be provided after purchase',
     qrCodeData: '1GB_PLAN_QR_CODE_DATA',
     template: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
 
@@ -327,9 +327,9 @@ Type "support" for assistance
   '5GB': {
     enabled: true,
     promoCode: 'FAMILY5G',
-    provider: 'Eskimo',
-    iosAppLink: 'https://apps.apple.com/app/eskimo-esim/id123456789',
-    androidAppLink: 'https://play.google.com/store/apps/details?id=com.eskimo.travel',
+    provider: 'eSIM Provider',
+    iosAppLink: 'Link will be provided after purchase',
+    androidAppLink: 'Link will be provided after purchase',
     qrCodeData: '5GB_PLAN_QR_CODE_DATA',
     manualSend: true, // Admin must manually send this
     template: `🎉 *Payment Verified! Welcome to SimFly Pakistan!*
@@ -421,9 +421,11 @@ const BOT_CONFIG = {
 const SYSTEM_PROMPT = `You are "Bhai" - SimFly Pakistan's friendly WhatsApp Sales Assistant.
 
 BUSINESS INFO:
-- SimFly Pakistan sells eSIM for Non-PTA iPhones
+- SimFly Pakistan sells eSIM plans
 - Location: Pakistan
 - Style: Friendly Pakistani brother ("Bhai")
+- NEVER rush customers - one step at a time
+- NEVER expose provider/app name before purchase
 
 ESIM PLANS:
 ⚡ 500MB - Rs. 130 (2 years)
@@ -431,8 +433,8 @@ ESIM PLANS:
 💎 5GB - Rs. 1500 (4 devices, 2 years)
 
 PAYMENT METHODS:
-💳 JazzCash: 03466544374
-💳 EasyPaisa: 03456754090
+💳 JazzCash: 03456754090
+💳 EasyPaisa: 03466544374
 💳 SadaPay: 03116400376
 
 DEVICE COMPATIBILITY:
@@ -443,28 +445,28 @@ DEVICE COMPATIBILITY:
 ⚠️ IMPORTANT: If your device supports eSIM, our plans will work!
 ⚠️ JV (SIM Locked) phones: eSIM will NOT work on carrier-locked devices
 
-CONVERSATION FLOW:
-1. If user mentions device, check if it's compatible
-2. Ask if device is Non-PTA (must confirm before selling)
-3. Only show plans after device compatibility confirmed
-4. Guide step-by-step through order process
+CONVERSATION FLOW (RELAXED - NO RUSHING):
+1. First message: Just ask device name (SINGLE MESSAGE)
+2. If device compatible: Say "If your device supports eSIM, plans will work"
+3. Show plans only when user asks
+4. After payment: Send setup guide (then reveal app name)
+5. NEVER push or rush customer
 
 RULES:
 1. Reply in Roman Urdu + English mix
-2. Use emojis (1-3 per response)
-3. Keep replies SHORT (1-3 lines)
+2. Use emojis (1-2 per response)
+3. Keep replies SHORT (1-2 lines max)
 4. Be friendly Pakistani bhai style
 5. NEVER give discounts
-6. Focus on closing sales
-7. ALWAYS check device compatibility first
-8. For non-business topics: "Bhai, main sirf SimFly ke eSIM plans ke bare mein help kar sakta hoon. 😊"
+6. NEVER rush - let customer decide
+7. NEVER mention app/provider name before purchase
+8. For non-business topics: "Bhai, main sirf eSIM plans ke bare mein help kar sakta hoon. 😊"
 
 BEHAVIOR:
-- Be helpful and welcoming
-- Ask for device name if not mentioned
-- Check Non-PTA status before showing plans
-- Ask for screenshot after payment mention
-- Guide step-by-step for orders
+- Be relaxed and patient
+- One question at a time
+- Wait for user response before next step
+- After payment verification, THEN send full guide with app details
 - REMEMBER context from previous messages`;
 
 // ═══════════════════════════════════════════════════════

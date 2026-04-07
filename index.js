@@ -1242,21 +1242,26 @@ async function sendPlanDetailsAfterVerification(chatId, planType) {
         return;
     }
 
-    // Auto-send for 500MB and 1GB
-    // Send confirmation message
-    await client.sendMessage(chatId, `✅ *Payment Verified Successfully!*\n\nProcessing your eSIM... 🚀`);
-    await new Promise(r => setTimeout(r, 1500));
+    // Auto-send for 500MB and 1GB - ONE SIMPLE BUT DETAILED MESSAGE
+    const simpleGuide = `✅ *Payment Verified!*
 
-    // Send complete setup instructions (includes promo code, app links, activation steps)
-    await client.sendMessage(chatId, plan.setupInstructions);
+📦 Plan: ${plan.name}
+💰 Price: Rs. ${plan.price}
+🎁 Promo Code: ${plan.promoCode}
 
-    // Send QR code info separately
-    await new Promise(r => setTimeout(r, 2000));
-    await client.sendMessage(chatId, `📱 *QR CODE READY*\n\nAapko QR code email pe bhi bhej diya gaya hai!\n\n*Manual Entry Details:*\n• Provider: ${plan.esimProvider}\n• Promo: ${plan.promoCode}\n\n_Agar QR scan nahi hota toh app mein manually add karein_`);
+📲 *Setup Steps:*
+1️⃣ Download eSIM app from App Store/Play Store
+2️⃣ Sign up → Enter promo code: *${plan.promoCode}*
+3️⃣ Settings → Cellular → Add eSIM
+4️⃣ Scan QR code OR enter details manually
+5️⃣ Enable Data Roaming ✅
+6️⃣ Wait 2-5 minutes for activation
 
-    // Final help message
-    await new Promise(r => setTimeout(r, 1500));
-    await client.sendMessage(chatId, `💬 *Need Help?*\n\n❓ Type "support" for help\n❓ Type "guide" for activation guide\n❓ Type "problem" if facing issues\n\n_We are here to help 24/7!_`);
+❓ Problem? Type "support"
+
+Shukriya! 🙏`;
+
+    await client.sendMessage(chatId, simpleGuide);
 
     // Save order as completed
     const orderId = Date.now().toString(36);
@@ -2830,22 +2835,9 @@ async function getAIResponseWithContext(userMessage, chatId, chatContext) {
         }
     }
 
-    // Only use keywords/FAQ as fallback for very short messages or if AI fails
-    if (msg.length <= 3) {
-        const keywordResponse = findKeywordResponse(userMessage);
-        if (keywordResponse) return keywordResponse;
-    }
-
-    // Check FAQ for specific questions (as secondary fallback)
-    const faqResponse = findFAQResponse(userMessage);
-    if (faqResponse) return faqResponse;
-
-    // Final fallback to templates
-    if (BOT_CONFIG.useTemplates) {
-        return await getTemplateResponse(userMessage, chatId);
-    }
-
-    return `Bhai samajh nahi aaya. 😅 Main SimFly Pakistan ke eSIM plans ke bare mein info de sakta hoon.\n\nKya aap:\n📱 Plans dekhna chahte hain?\n💳 Payment methods janna chahte hain?\n🛒 Order karna chahte hain?`;
+    // 100% AI-DRIVEN: Even fallback uses AI with simplified prompt
+    log(`Groq not available, using simplified AI response for ${chatId}`, 'warn');
+    return `Bhai, thoda busy hoon. 😅 Aap message repeat karein?\n\nMain eSIM plans ke bare mein help kar sakta hoon.`;
 }
 
 // Enhanced Groq response with full context
