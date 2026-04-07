@@ -578,6 +578,497 @@ function parseGeminiResponse(text) {
     return result;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// 📸 ENHANCED SCREENSHOT DETECTION & PAYMENT VERIFICATION SYSTEM v2.0
+// ════════════════════════════════════════════════════════════════════════════
+
+// Payment Verification State
+const PaymentVerificationSystem = {
+    queue: new Map(), // chatId -> verification data
+    verifiedCustomers: new Set(), // Customers with successful payments
+    suspiciousActivity: new Map(), // chatId -> count of suspicious attempts
+    dailyStats: {
+        totalScreenshots: 0,
+        verifiedPayments: 0,
+        rejectedPayments: 0,
+        pendingReviews: 0
+    }
+};
+
+// Screenshot types for classification
+const SCREENSHOT_TYPES = {
+    PAYMENT: 'payment',
+    ISSUE: 'issue',
+    CHAT: 'chat',
+    RANDOM: 'random',
+    DUPLICATE: 'duplicate',
+    SUSPICIOUS: 'suspicious'
+};
+
+// Enhanced screenshot analyzer with detailed classification
+async function analyzeScreenshotEnhanced(imageData, mimeType, chatId, userMessage, chatHistory) {
+    log(`🔍 Analyzing screenshot from ${chatId}...`, 'info');
+
+    const result = {
+        type: SCREENSHOT_TYPES.RANDOM,
+        confidence: 0,
+        isPayment: false,
+        isIssue: false,
+        isSuspicious: false,
+        extractedText: '',
+        amount: null,
+        paymentMethod: null,
+        transactionId: null,
+        timestamp: null,
+        reasons: [],
+        shouldNotifyAdmin: false,
+        shouldReplyToCustomer: false,
+        autoApprove: false
+    };
+
+    // Step 1: Use Gemini AI for initial classification
+    let geminiAnalysis = null;
+    if (isGeminiEnabled && isGeminiEnabled()) {
+        try {
+            geminiAnalysis = await analyzeImageWithGemini(imageData, mimeType, chatId, userMessage);
+            result.extractedText = geminiAnalysis.textExtracted || '';
+            result.amount = geminiAnalysis.amount;
+            result.paymentMethod = geminiAnalysis.method;
+        } catch (e) {
+            log('Gemini analysis failed, using fallback', 'warn');
+        }
+    }
+
+    // Step 2: Text-based heuristics
+    const lowerMessage = userMessage.toLowerCase();
+    const extractedText = result.extractedText.toLowerCase();
+
+    // Payment keywords in message or extracted text
+    const paymentIndicators = [
+        'payment', 'paid', 'send', 'sent', 'transfer', 'rs.', 'rs ', 'pkr',
+        'jazzcash', 'easypaisa', 'sadapay', 'transaction', 'successful',
+        'received', 'amount', 'bhej', 'payment sent', 'screenshot'
+    ];
+
+    const hasPaymentIndicators = paymentIndicators.some(kw =>
+        lowerMessage.includes(kw) || extractedText.includes(kw)
+    );
+
+    // Check for transaction patterns
+    const transactionPatterns = [
+        /trx\s*id[:\s]*([a-z0-9]+)/i,
+        /transaction\s*id[:\s]*([a-z0-9]+)/i,
+        /ref[:\s]*([a-z0-9]+)/i,
+        /\b\d{6,}\b/ // 6+ digit numbers (likely transaction IDs)
+    ];
+
+    for (const pattern of transactionPatterns) {
+        const match = extractedText.match(pattern) || lowerMessage.match(pattern);
+        if (match) {
+            result.transactionId = match[1] || match[0];
+            break;
+        }
+    }
+
+    // Amount detection
+    if (!result.amount) {
+        const amountPatterns = [
+            /rs\.?\s*(\d+)/i,
+            /amount[:\s]*rs?\.?\s*(\d+)/i,
+            /pkr\s*(\d+)/i,
+            /\b(130|400|1500)\b/ // Specific plan amounts
+        ];
+
+        for (const pattern of amountPatterns) {
+            const match = extractedText.match(pattern) || lowerMessage.match(pattern);
+            if (match) {
+                const amt = parseInt(match[1]);
+                if ([130, 400, 1500].includes(amt)) {
+                    result.amount = amt;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Payment method detection
+    if (!result.paymentMethod) {
+        const methodPatterns = [
+            { name: 'JazzCash', patterns: ['jazzcash', 'jazz', 'jazz cash'] },
+            { name: 'EasyPaisa', patterns: ['easypaisa', 'easy paisa', 'easypaisa'] },
+            { name: 'SadaPay', patterns: ['sadapay', 'sada pay'] }
+        ];
+
+        for (const method of methodPatterns) {
+            if (method.patterns.some(p => lowerMessage.includes(p) || extractedText.includes(p))) {
+                result.paymentMethod = method.name;
+                break;
+            }
+        }
+    }
+
+    // Step 3: Classify screenshot type
+    if (geminiAnalysis) {
+        if (geminiAnalysis.type === 'payment' && geminiAnalysis.confidence >= 50) {
+            result.type = SCREENSHOT_TYPES.PAYMENT;
+            result.isPayment = true;
+            result.confidence = geminiAnalysis.confidence;
+        } else if (geminiAnalysis.type === 'issue' && geminiAnalysis.confidence >= 50) {
+            result.type = SCREENSHOT_TYPES.ISSUE;
+            result.isIssue = true;
+            result.confidence = geminiAnalysis.confidence;
+        }
+    }
+
+    // Fallback classification
+    if (result.type === SCREENSHOT_TYPES.RANDOM && hasPaymentIndicators) {
+        if (result.amount && result.paymentMethod) {
+            result.type = SCREENSHOT_TYPES.PAYMENT;
+            result.isPayment = true;
+            result.confidence = 60;
+        }
+    }
+
+    // Step 4: Fraud/Suspicious detection
+    const fraudChecks = checkForFraud(chatId, result, chatHistory);
+    result.isSuspicious = fraudChecks.isSuspicious;
+    result.reasons = fraudChecks.reasons;
+
+    // Step 5: Duplicate detection
+    const isDuplicate = checkDuplicateScreenshot(chatId, imageData);
+    if (isDuplicate) {
+        result.type = SCREENSHOT_TYPES.DUPLICATE;
+        result.isPayment = false;
+        result.reasons.push('Duplicate screenshot detected');
+    }
+
+    // Step 6: Determine actions
+    if (result.isPayment && !result.isSuspicious && !isDuplicate) {
+        result.shouldNotifyAdmin = true;
+
+        // Auto-approve for trusted customers
+        if (PaymentVerificationSystem.verifiedCustomers.has(chatId) &&
+            result.confidence >= 80 &&
+            result.amount &&
+            result.paymentMethod) {
+            result.autoApprove = true;
+        }
+    }
+
+    // Update stats
+    PaymentVerificationSystem.dailyStats.totalScreenshots++;
+
+    return result;
+}
+
+// Fraud detection system
+function checkForFraud(chatId, analysis, chatHistory) {
+    const result = {
+        isSuspicious: false,
+        reasons: []
+    };
+
+    // Check for rapid multiple submissions
+    const recentSubmissions = PaymentVerificationSystem.suspiciousActivity.get(chatId) || 0;
+    if (recentSubmissions > 3) {
+        result.isSuspicious = true;
+        result.reasons.push(`Multiple submissions (${recentSubmissions} in short time)`);
+    }
+
+    // Check for amount mismatches
+    if (analysis.amount) {
+        const validAmounts = [130, 400, 1500];
+        if (!validAmounts.includes(analysis.amount)) {
+            result.isSuspicious = true;
+            result.reasons.push(`Unusual amount: Rs. ${analysis.amount}`);
+        }
+    }
+
+    // Check for missing critical info
+    if (analysis.isPayment && (!analysis.amount || !analysis.paymentMethod)) {
+        result.isSuspicious = true;
+        result.reasons.push('Missing payment details');
+    }
+
+    // Check message context
+    if (chatHistory && chatHistory.length > 0) {
+        const recentMessages = chatHistory.slice(-5);
+        const hasPlanDiscussion = recentMessages.some(m =>
+            /\b(500mb|1gb|5gb|plan|price)\b/i.test(m.body)
+        );
+
+        if (analysis.isPayment && !hasPlanDiscussion) {
+            result.isSuspicious = true;
+            result.reasons.push('Payment without plan discussion');
+        }
+    }
+
+    // Update suspicious activity counter
+    if (result.isSuspicious) {
+        PaymentVerificationSystem.suspiciousActivity.set(chatId, recentSubmissions + 1);
+    }
+
+    return result;
+}
+
+// Duplicate screenshot detection using simple hash
+const screenshotHashes = new Map(); // chatId -> Set of hashes
+
+function checkDuplicateScreenshot(chatId, imageData) {
+    // Simple hash of first 100 chars of base64
+    const hash = imageData.slice(0, 100);
+
+    if (!screenshotHashes.has(chatId)) {
+        screenshotHashes.set(chatId, new Set());
+    }
+
+    const userHashes = screenshotHashes.get(chatId);
+
+    if (userHashes.has(hash)) {
+        return true;
+    }
+
+    userHashes.add(hash);
+
+    // Cleanup old hashes (keep last 10)
+    if (userHashes.size > 10) {
+        const first = userHashes.values().next().value;
+        userHashes.delete(first);
+    }
+
+    return false;
+}
+
+// Payment verification queue management
+async function addToVerificationQueue(chatId, analysis, mediaData, msgId) {
+    const queueItem = {
+        chatId,
+        timestamp: Date.now(),
+        status: 'pending', // pending, approved, rejected
+        analysis,
+        mediaData,
+        msgId,
+        attempts: 0,
+        adminNotified: false
+    };
+
+    PaymentVerificationSystem.queue.set(chatId, queueItem);
+    PaymentVerificationSystem.dailyStats.pendingReviews++;
+
+    log(`Payment added to queue: ${chatId}, Amount: Rs. ${analysis.amount}`, 'info');
+
+    // Notify admin
+    await notifyAdminAboutPayment(chatId, analysis, 'pending');
+}
+
+// Admin notification with rich details
+async function notifyAdminAboutPayment(chatId, analysis, status) {
+    if (!ADMIN_NUMBER) return;
+
+    const number = chatId.replace(/\D/g, '').substring(0, 12);
+    const amount = analysis.amount || 'Unknown';
+    const method = analysis.paymentMethod || 'Unknown';
+    const transactionId = analysis.transactionId || 'N/A';
+    const confidence = analysis.confidence || 0;
+
+    let statusEmoji = '⏳';
+    let statusText = 'PENDING REVIEW';
+
+    if (status === 'approved') {
+        statusEmoji = '✅';
+        statusText = 'APPROVED';
+    } else if (status === 'rejected') {
+        statusEmoji = '❌';
+        statusText = 'REJECTED';
+    }
+
+    const planType = analysis.amount === 130 ? '500MB' :
+                    analysis.amount === 400 ? '1GB' :
+                    analysis.amount === 1500 ? '5GB' : 'Unknown';
+
+    const notification = `${statusEmoji} *PAYMENT ${statusText}*
+
+👤 Customer: ${number}
+📱 Chat: ${chatId}
+
+💰 *Amount:* Rs. ${amount}
+📦 *Plan:* ${planType}
+💳 *Method:* ${method}
+🆔 *Transaction ID:* ${transactionId}
+🎯 *AI Confidence:* ${confidence}%
+
+${analysis.isSuspicious ? '⚠️ *SUSPICIOUS:* ' + analysis.reasons.join(', ') : ''}
+
+*Actions:*
+Reply:
+• !approve ${number} - Verify payment
+• !reject ${number} [reason] - Reject with reason
+• !check ${number} - View details`;
+
+    try {
+        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+        await client.sendMessage(adminChat, notification);
+
+        // If there's media, send it to admin too
+        if (analysis.mediaData && status === 'pending') {
+            const media = new MessageMedia('image/jpeg', analysis.mediaData);
+            await client.sendMessage(adminChat, media, { caption: `📸 Screenshot from ${number}` });
+        }
+
+        // Mark as notified
+        const queueItem = PaymentVerificationSystem.queue.get(chatId);
+        if (queueItem) {
+            queueItem.adminNotified = true;
+        }
+    } catch (e) {
+        log('Failed to notify admin: ' + e.message, 'error');
+    }
+}
+
+// Customer notification based on verification status
+async function notifyCustomerAboutPayment(chatId, status, reason = '') {
+    let message = '';
+
+    if (status === 'approved') {
+        message = `✅ *Payment Verified Successfully!* ❤️
+
+Bhai, aapki payment confirm ho gai hai!
+
+⏳ Ab main aapko eSIM guide bhej raha hoon...
+
+*2 minutes mein aapko:*
+📱 App download link
+🎁 Promo code
+📲 Activation steps
+
+*Shukriya bhai!* 🙏❤️`;
+
+        // Add to verified customers
+        PaymentVerificationSystem.verifiedCustomers.add(chatId);
+        PaymentVerificationSystem.dailyStats.verifiedPayments++;
+
+    } else if (status === 'rejected') {
+        message = `❌ *Payment Verification Issue* ❤️
+
+Bhai, payment verify nahi ho saki.
+
+*Reason:* ${reason || 'Screenshot unclear ya details missing'}
+
+*Kya karein:*
+1️⃣ Screenshot dubara bhejein (clear ho)
+2️⃣ Payment details saath likhein
+3️⃣ Ya direct admin se baat karein
+
+*Koi tension nahi, hum hain na!* 👍❤️`;
+
+        PaymentVerificationSystem.dailyStats.rejectedPayments++;
+    } else if (status === 'pending') {
+        message = `⏳ *Verification in Process* ❤️
+
+Bhai, screenshot mil gaya hai!
+
+🔍 Admin check kar raha hai...
+⏱️ 2-5 minutes mein confirm hoga
+
+*Aap wait karein, main update deta rahoon ga!* 👍`;
+    }
+
+    try {
+        await client.sendMessage(chatId, message);
+        await saveMessage(chatId, { body: message, fromMe: true, time: Date.now() });
+    } catch (e) {
+        log('Failed to notify customer: ' + e.message, 'error');
+    }
+}
+
+// Process verification approval/rejection
+async function processVerificationDecision(chatId, decision, reason = '', adminId) {
+    const queueItem = PaymentVerificationSystem.queue.get(chatId);
+
+    if (!queueItem) {
+        return { success: false, error: 'No pending verification found for this customer' };
+    }
+
+    if (decision === 'approve') {
+        queueItem.status = 'approved';
+        queueItem.approvedBy = adminId;
+        queueItem.approvedAt = Date.now();
+
+        // Notify customer
+        await notifyCustomerAboutPayment(chatId, 'approved');
+
+        // Send plan guide
+        const planType = queueItem.analysis.amount === 130 ? '500MB' :
+                        queueItem.analysis.amount === 400 ? '1GB' :
+                        queueItem.analysis.amount === 1500 ? '5GB' : null;
+
+        if (planType) {
+            setTimeout(async () => {
+                await sendPlanDetailsAfterVerification(chatId, planType);
+            }, 2000);
+        }
+
+        // Update queue
+        PaymentVerificationSystem.queue.delete(chatId);
+        PaymentVerificationSystem.dailyStats.pendingReviews--;
+
+        log(`Payment approved for ${chatId} by ${adminId}`, 'admin');
+
+        return {
+            success: true,
+            message: `✅ Payment approved for ${chatId}\n📦 Plan: ${planType || 'Unknown'}\n💰 Amount: Rs. ${queueItem.analysis.amount}`
+        };
+
+    } else if (decision === 'reject') {
+        queueItem.status = 'rejected';
+        queueItem.rejectedBy = adminId;
+        queueItem.rejectedAt = Date.now();
+        queueItem.rejectionReason = reason;
+
+        // Notify customer
+        await notifyCustomerAboutPayment(chatId, 'rejected', reason);
+
+        // Update queue
+        PaymentVerificationSystem.queue.delete(chatId);
+        PaymentVerificationSystem.dailyStats.pendingReviews--;
+
+        log(`Payment rejected for ${chatId} by ${adminId}. Reason: ${reason}`, 'admin');
+
+        return {
+            success: true,
+            message: `❌ Payment rejected for ${chatId}\nReason: ${reason || 'Not specified'}`
+        };
+    }
+
+    return { success: false, error: 'Invalid decision' };
+}
+
+// Get verification stats for admin
+function getVerificationStats() {
+    return {
+        ...PaymentVerificationSystem.dailyStats,
+        pendingQueue: PaymentVerificationSystem.queue.size,
+        verifiedCustomers: PaymentVerificationSystem.verifiedCustomers.size,
+        suspiciousCustomers: PaymentVerificationSystem.suspiciousActivity.size
+    };
+}
+
+// Auto-cleanup old queue items (older than 24 hours)
+function cleanupVerificationQueue() {
+    const now = Date.now();
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+    for (const [chatId, item] of PaymentVerificationSystem.queue) {
+        if (now - item.timestamp > maxAge) {
+            PaymentVerificationSystem.queue.delete(chatId);
+            log(`Old verification item cleaned up: ${chatId}`, 'info');
+        }
+    }
+}
+
+// Run cleanup every hour
+setInterval(cleanupVerificationQueue, 60 * 60 * 1000);
+
 async function handleImageWithAIAnalysis(msg, chatId, body) {
     try {
         if (!msg.hasMedia) return null;
@@ -1763,6 +2254,18 @@ const ADMIN_COMMANDS = {
     '!order-month': { desc: 'This month\'s orders', usage: '!order-month', category: 'orders' },
     '!order-revenue': { desc: 'Calculate revenue', usage: '!order-revenue', category: 'orders' },
 
+    // 💰 PAYMENT VERIFICATION
+    '!approve': { desc: 'Approve payment verification', usage: '!approve <number>', category: 'payments' },
+    '!payment-approve': { desc: 'Approve payment (alias)', usage: '!payment-approve <number>', category: 'payments' },
+    '!reject': { desc: 'Reject payment verification', usage: '!reject <number> [reason]', category: 'payments' },
+    '!payment-reject': { desc: 'Reject payment (alias)', usage: '!payment-reject <number> [reason]', category: 'payments' },
+    '!pending': { desc: 'List pending payments', usage: '!pending', category: 'payments' },
+    '!payments-pending': { desc: 'List pending payments (alias)', usage: '!payments-pending', category: 'payments' },
+    '!check': { desc: 'Check payment details', usage: '!check <number>', category: 'payments' },
+    '!payment-check': { desc: 'Check payment details (alias)', usage: '!payment-check <number>', category: 'payments' },
+    '!verification-stats': { desc: 'Payment verification statistics', usage: '!verification-stats', category: 'payments' },
+    '!vstats': { desc: 'Verification stats (short)', usage: '!vstats', category: 'payments' },
+
     // 🤖 BOT CONTROLS
     '!status': { desc: 'Show bot status', usage: '!status', category: 'bot' },
     '!restart': { desc: 'Restart the bot', usage: '!restart', category: 'bot' },
@@ -2114,6 +2617,73 @@ async function handleAdminCommand(msg, chatId, body) {
         const stats = await getStats();
         const pending = await getPendingOrders();
         return `📊 *ORDER STATS*\n\n📦 Total Orders: ${stats.totalOrders}\n⏳ Pending: ${pending.length}\n✅ Completed: ${stats.totalOrders - pending.length}`;
+    }
+
+    // 💰 PAYMENT VERIFICATION COMMANDS
+    if (command === '!approve' || command === '!payment-approve') {
+        const number = args.split(' ')[0];
+        if (!number) return '❌ Usage: !approve <number>\n\nExample: !approve 923001234567';
+
+        const targetChatId = `${number.replace(/\D/g, '')}@c.us`;
+        const result = await processVerificationDecision(targetChatId, 'approve', '', chatId);
+
+        if (result.success) {
+            return `✅ ${result.message}`;
+        } else {
+            return `❌ ${result.error}\n\nUse !pending to see pending verifications`;
+        }
+    }
+
+    if (command === '!reject' || command === '!payment-reject') {
+        const parts = args.split(' ');
+        const number = parts[0];
+        const reason = parts.slice(1).join(' ') || 'Screenshot unclear or invalid';
+
+        if (!number) return '❌ Usage: !reject <number> [reason]\n\nExample: !reject 923001234567 screenshot blurry';
+
+        const targetChatId = `${number.replace(/\D/g, '')}@c.us`;
+        const result = await processVerificationDecision(targetChatId, 'reject', reason, chatId);
+
+        if (result.success) {
+            return `✅ ${result.message}`;
+        } else {
+            return `❌ ${result.error}`;
+        }
+    }
+
+    if (command === '!pending' || command === '!payments-pending') {
+        const pending = Array.from(PaymentVerificationSystem.queue.entries());
+        if (pending.length === 0) {
+            return '✅ No pending payment verifications.';
+        }
+
+        const list = pending.map(([chatId, item]) => {
+            const number = chatId.replace(/\D/g, '').slice(-10);
+            const timeAgo = Math.floor((Date.now() - item.timestamp) / 60000);
+            return `• ${number} - Rs.${item.analysis.amount || '?'} - ${timeAgo}m ago ${item.analysis.isSuspicious ? '⚠️' : ''}`;
+        }).join('\n');
+
+        return `⏳ *PENDING PAYMENTS (${pending.length})*\n\n${list}\n\n*Actions:*\n!approve <number> - Approve\n!reject <number> [reason] - Reject\n!check <number> - View details`;
+    }
+
+    if (command === '!check' || command === '!payment-check') {
+        const number = args.split(' ')[0];
+        if (!number) return '❌ Usage: !check <number>';
+
+        const targetChatId = `${number.replace(/\D/g, '')}@c.us`;
+        const queueItem = PaymentVerificationSystem.queue.get(targetChatId);
+
+        if (!queueItem) {
+            return `❌ No pending verification found for ${number}`;
+        }
+
+        const analysis = queueItem.analysis;
+        return `🔍 *PAYMENT DETAILS*\n\n👤 Number: ${number}\n💰 Amount: Rs. ${analysis.amount || 'Unknown'}\n💳 Method: ${analysis.paymentMethod || 'Unknown'}\n🆔 Transaction ID: ${analysis.transactionId || 'N/A'}\n🎯 AI Confidence: ${analysis.confidence}%\n⏱️ Submitted: ${Math.floor((Date.now() - queueItem.timestamp) / 60000)}m ago\n\n${analysis.isSuspicious ? '⚠️ *SUSPICIOUS:* ' + analysis.reasons.join(', ') : '✅ Looks legitimate'}`;
+    }
+
+    if (command === '!verification-stats' || command === '!vstats') {
+        const stats = getVerificationStats();
+        return `📊 *PAYMENT VERIFICATION STATS*\n\n📸 Total Screenshots Today: ${stats.totalScreenshots}\n✅ Verified Payments: ${stats.verifiedPayments}\n❌ Rejected: ${stats.rejectedPayments}\n⏳ Pending Review: ${stats.pendingQueue}\n\n👥 Trusted Customers: ${stats.verifiedCustomers}\n⚠️ Suspicious Activity: ${stats.suspiciousCustomers}`;
     }
 
     // 💎 PLAN MANAGEMENT
@@ -3571,53 +4141,142 @@ async function startWhatsApp() {
             }
 
             // ═══════════════════════════════════════════════════════
-            // 💳 ENHANCED PAYMENT VERIFICATION (Gemini AI First)
+            // 📸 SCREENSHOT DETECTION + PAYMENT VERIFICATION SYSTEM v2.0
             // ═══════════════════════════════════════════════════════
-            let verification = null;
             if (msg.hasMedia) {
-                // First: Analyze with Gemini if it's payment screenshot or not
-                log(`Analyzing media from ${chatId}...`, 'info');
+                log(`🔍 Processing media from ${chatId}...`, 'info');
 
                 try {
                     const media = await msg.downloadMedia();
                     if (media && media.data) {
-                        // Analyze with Gemini - is this payment or something else?
-                        const analysis = await analyzeImageWithGemini(media.data, media.mimetype, chatId, body);
+                        // Get chat history for context
+                        const chatHistory = await getHistory(chatId);
 
-                        if (analysis.type === 'payment' && analysis.confidence >= 50) {
-                            // This IS a payment screenshot
-                            log(`Payment screenshot confirmed by Gemini for ${chatId}`, 'info');
+                        // Step 1: Enhanced screenshot analysis
+                        const screenshotAnalysis = await analyzeScreenshotEnhanced(
+                            media.data,
+                            media.mimetype,
+                            chatId,
+                            body,
+                            chatHistory
+                        );
 
-                            verification = await verifyPaymentScreenshot(msg, chatId, body);
+                        log(`Screenshot analysis: ${screenshotAnalysis.type} (confidence: ${screenshotAnalysis.confidence}%)`, 'info');
 
-                            // Say "verification in process" (NOT "received")
-                            await msg.reply(`⏳ *Verification in process bhai ❤️*\n\nAdmin check kar raha hai...\n\n2-5 minutes mein confirmation mil jayega!`);
+                        // Step 2: Handle based on screenshot type
+                        if (screenshotAnalysis.type === SCREENSHOT_TYPES.PAYMENT && screenshotAnalysis.isPayment) {
+                            // PAYMENT SCREENSHOT DETECTED
 
-                            // Notify admin with user number
+                            // Check if auto-approve (trusted customer + high confidence)
+                            if (screenshotAnalysis.autoApprove) {
+                                log(`🤖 Auto-approving payment for trusted customer ${chatId}`, 'info');
+
+                                // Notify customer immediately
+                                await notifyCustomerAboutPayment(chatId, 'approved');
+
+                                // Send plan guide
+                                const planType = screenshotAnalysis.amount === 130 ? '500MB' :
+                                                screenshotAnalysis.amount === 400 ? '1GB' :
+                                                screenshotAnalysis.amount === 1500 ? '5GB' : null;
+
+                                if (planType) {
+                                    setTimeout(async () => {
+                                        await sendPlanDetailsAfterVerification(chatId, planType);
+                                    }, 2000);
+                                }
+
+                                // Notify admin about auto-approval
+                                if (ADMIN_NUMBER) {
+                                    try {
+                                        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                                        const number = chatId.replace(/\D/g, '').substring(0, 12);
+                                        await client.sendMessage(adminChat,
+                                            `✅ *AUTO-APPROVED PAYMENT*\n\n` +
+                                            `👤 Customer: ${number}\n` +
+                                            `💰 Amount: Rs. ${screenshotAnalysis.amount}\n` +
+                                            `🎯 Confidence: ${screenshotAnalysis.confidence}%\n` +
+                                            `✨ Trusted customer - Auto approved`
+                                        );
+                                    } catch (e) {}
+                                }
+
+                                return;
+                            }
+
+                            // Add to verification queue (manual review required)
+                            await addToVerificationQueue(chatId, screenshotAnalysis, media.data, msg.id?.id);
+
+                            // Notify customer
+                            await notifyCustomerAboutPayment(chatId, 'pending');
+
+                            // If suspicious, add warning to admin notification
+                            if (screenshotAnalysis.isSuspicious) {
+                                if (ADMIN_NUMBER) {
+                                    try {
+                                        const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
+                                        await client.sendMessage(adminChat,
+                                            `⚠️ *SUSPICIOUS PAYMENT ALERT*\n\n` +
+                                            `Customer: ${chatId.replace(/\D/g, '').substring(0, 12)}\n` +
+                                            `⚠️ Flags: ${screenshotAnalysis.reasons.join(', ')}\n\n` +
+                                            `Review carefully before approving!`
+                                        );
+                                    } catch (e) {}
+                                }
+                            }
+
+                            return;
+
+                        } else if (screenshotAnalysis.type === SCREENSHOT_TYPES.ISSUE && screenshotAnalysis.isIssue) {
+                            // ISSUE SCREENSHOT
+                            await msg.reply(`🆘 *Issue Screenshot Received* ❤️\n\nBhai, screenshot mil gaya! Main analyze kar raha hoon... 🤔\n\n*Problem:* ${screenshotAnalysis.extractedText?.slice(0, 100) || 'Analyzing...'}`);
+
+                            // Notify admin
                             if (ADMIN_NUMBER) {
                                 try {
                                     const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-                                    const number = chatId.replace(/\D/g, '').substring(0, 12);
-                                    await client.sendMessage(adminChat, `💰 *PAYMENT SCREENSHOT*\n\nNumber: ${number}\nChat: ${chatId}\n\nReply !approve to verify`);
+                                    await client.sendMessage(adminChat,
+                                        `🆘 *ISSUE SCREENSHOT*\n\n` +
+                                        `From: ${chatId}\n` +
+                                        `Description: ${screenshotAnalysis.extractedText?.slice(0, 200) || 'See image'}\n\n` +
+                                        `Customer needs technical support!`
+                                    );
                                 } catch (e) {}
                             }
                             return;
 
-                        } else {
-                            // NOT a payment screenshot - DON'T reply to customer
-                            log(`NOT a payment screenshot (${analysis.type}) - only notifying admin`, 'info');
+                        } else if (screenshotAnalysis.type === SCREENSHOT_TYPES.DUPLICATE) {
+                            // DUPLICATE SCREENSHOT
+                            await msg.reply(`⚠️ *Duplicate Screenshot* ❤️\n\nBhai, yeh screenshot pehle bheja ja chuka hai.\n\nAgar new payment hai toh dubara clear screenshot bhejein! 📱`);
+                            return;
 
-                            if (ADMIN_NUMBER) {
+                        } else if (screenshotAnalysis.type === SCREENSHOT_TYPES.CHAT) {
+                            // CHAT SCREENSHOT (someone else's conversation)
+                            await msg.reply(`📸 *Chat Screenshot Received* ❤️\n\nBhai, yeh kisi aur ki conversation lag rahi hai.\n\nAgar aapka issue hai toh khud explain karein, ya apna screenshot bhejein! 👍`);
+                            return;
+
+                        } else {
+                            // UNKNOWN/RANDOM SCREENSHOT - Don't reply to customer
+                            log(`Non-payment screenshot (${screenshotAnalysis.type}) from ${chatId} - only notifying admin`, 'info');
+
+                            // Only notify admin, don't bother customer
+                            if (ADMIN_NUMBER && screenshotAnalysis.shouldNotifyAdmin) {
                                 try {
                                     const adminChat = `${ADMIN_NUMBER.replace(/\D/g, '')}@c.us`;
-                                    await client.sendMessage(adminChat, `📸 *NON-PAYMENT IMAGE*\n\nFrom: ${chatId}\nType: ${analysis.type}\n\nNOT replying to customer`);
+                                    const number = chatId.replace(/\D/g, '').substring(0, 12);
+                                    await client.sendMessage(adminChat,
+                                        `📸 *NON-PAYMENT IMAGE*\n\n` +
+                                        `From: ${number}\n` +
+                                        `Type: ${screenshotAnalysis.type}\n` +
+                                        `Confidence: ${screenshotAnalysis.confidence}%\n\n` +
+                                        `No action taken - not replying to customer`
+                                    );
                                 } catch (e) {}
                             }
-                            return; // Don't reply to customer
+                            return;
                         }
                     }
                 } catch (e) {
-                    log('Media analysis error: ' + e.message, 'error');
+                    log('Screenshot analysis error: ' + e.message, 'error');
                 }
             }
 
