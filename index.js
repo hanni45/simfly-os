@@ -16,6 +16,7 @@ const axios = require('axios');
 const {
     GROQ_API_KEY,
     GROQ_MODEL,
+    GEMINI_API_KEYS,
     ADMIN_NUMBER,
     FIREBASE,
     APP_URL,
@@ -858,6 +859,10 @@ async function getAIResponseWithFallback(messages, temperature = 0.7) {
 
     // ATTEMPT 1: Groq AI (Primary)
     try {
+        // Check if Groq key is configured
+        if (!GROQ_API_KEY || GROQ_API_KEY.includes('YOUR_GROQ') || GROQ_API_KEY.length < 20) {
+            throw new Error('Groq API key not configured - set GROQ_API_KEY in config.js');
+        }
         if (isGroqEnabled()) {
             const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                 model: GROQ_MODEL,
@@ -879,12 +884,25 @@ async function getAIResponseWithFallback(messages, temperature = 0.7) {
             }
         }
     } catch (e) {
-        errors.push(`Groq: ${e.message}`);
+        const statusCode = e.response?.status;
+        if (statusCode === 401) {
+            errors.push(`Groq: Invalid API key (401 Unauthorized) - Check your GROQ_API_KEY in config.js`);
+        } else {
+            errors.push(`Groq: ${e.message}`);
+        }
     }
 
     // ATTEMPT 2: Gemini AI (First fallback)
     try {
-        const geminiResponse = await getGeminiResponse(messages, GEMINI_API_KEYS[0]);
+        // Check if GEMINI_API_KEYS is available and has valid keys
+        if (!GEMINI_API_KEYS || !Array.isArray(GEMINI_API_KEYS) || GEMINI_API_KEYS.length === 0) {
+            throw new Error('Gemini API keys not configured');
+        }
+        const firstKey = GEMINI_API_KEYS.find(k => k && !k.includes('YOUR_GEMINI'));
+        if (!firstKey) {
+            throw new Error('No valid Gemini API key found');
+        }
+        const geminiResponse = await getGeminiResponse(messages, firstKey);
         if (geminiResponse && geminiResponse.length > 10) {
             log('AI Response: Gemini-1 (Fallback 1) ✅', 'info');
             return { success: true, content: geminiResponse, source: 'gemini-1' };
@@ -895,7 +913,14 @@ async function getAIResponseWithFallback(messages, temperature = 0.7) {
 
     // ATTEMPT 3: Gemini AI (Second fallback with different key)
     try {
-        const geminiResponse = await getGeminiResponse(messages, GEMINI_API_KEYS[1] || GEMINI_API_KEYS[0]);
+        if (!GEMINI_API_KEYS || !Array.isArray(GEMINI_API_KEYS) || GEMINI_API_KEYS.length < 2) {
+            throw new Error('Only one Gemini key available');
+        }
+        const secondKey = GEMINI_API_KEYS.slice(1).find(k => k && !k.includes('YOUR_GEMINI'));
+        if (!secondKey) {
+            throw new Error('No second valid Gemini API key found');
+        }
+        const geminiResponse = await getGeminiResponse(messages, secondKey);
         if (geminiResponse && geminiResponse.length > 10) {
             log('AI Response: Gemini-2 (Fallback 2) ✅', 'info');
             return { success: true, content: geminiResponse, source: 'gemini-2' };
