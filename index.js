@@ -4858,9 +4858,9 @@ async function startWhatsApp() {
                     // Show plans
                     const plansMsg = `Bilkul! SimFly ke 3 plans hain ✅
 
-📦 500MB — Rs. 250
-📦 1GB — Rs. 700
-📦 5GB — Rs. 2000
+📦 500MB — Rs. 130
+📦 1GB — Rs. 400
+📦 5GB — Rs. 1500
 
 Sab plans non-PTA phones ke liye perfect hain 🔥
 ${userFlow.name ? userFlow.name : 'Bhai'}, konsa plan lena chahoge?`;
@@ -4905,7 +4905,7 @@ Payment ke baad screenshot bhejo, main verify kar lunga ✅`;
                     }
 
                     // Generic response for other messages
-                    const helpMsg = `Koi sawal ho toh pooch sakte hain! Ya plan select karein:\n\n📦 500MB — Rs. 250\n📦 1GB — Rs. 700\n📦 5GB — Rs. 2000`;
+                    const helpMsg = `Koi sawal ho toh pooch sakte hain! Ya plan select karein:\n\n📦 500MB — Rs. 130\n📦 1GB — Rs. 400\n📦 5GB — Rs. 1500`;
                     await msg.reply(helpMsg);
                     await saveMessage(chatId, { body: helpMsg, fromMe: true, time: Date.now() });
                     return;
