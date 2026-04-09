@@ -4890,15 +4890,15 @@ async function getTemplateResponse(userMessage, chatId) {
     if (keywordResponse) return keywordResponse;
 
     // 3. Context-based responses
-    // Check if user mentioned a plan
+    // Check if user mentioned a plan — v4.0 PRICES
     if (msg.includes('500mb')) {
-        return `500MB plan Rs. 130 mein hai bhai! ⚡ 2 saal ki validity hai.\n\nPayment karne ke liye ready hain? 💳`;
+        return `📦 STARTER: 500MB — Rs 130\n\n✅ Validity: 2 YEARS\n\nPayment ready?`;
     }
     if (msg.includes('1gb')) {
-        return `1GB plan Rs. 400 (Most Popular) 🔥\n\n2 saal ki validity, zabardast deal hai!\n\nLena hai bhai? 📱`;
+        return `📦 STANDARD: 1GB — Rs 350\n\n✅ Validity: 2 YEARS\n\nLena hai?`;
     }
     if (msg.includes('5gb')) {
-        return `5GB plan Rs. 1500 mein hai bhai! 💎 4 devices pe use kar sakte hain.\n\nFamily ke liye perfect hai! 👨‍👩‍👧‍👦\n\nOrder karein?`;
+        return `📦 PRO: 5GB — Rs 1,250\n\n✅ Validity: 2 YEARS\n✅ 4 devices\n\nOrder karein?`;
     }
 
     // Check if asking about payment
@@ -4911,29 +4911,40 @@ async function getTemplateResponse(userMessage, chatId) {
 }
 
 // ============================================
-// MAIN AI RESPONSE FUNCTION (Hybrid)
+// MAIN AI RESPONSE FUNCTION — AI FIRST v4.0
+// ============================================
+// 🎯 MASTER SYSTEM PROMPT RULES:
+// 1. AI (Groq) is PRIMARY — always try AI first
+// 2. Keywords are SECONDARY — only fallback if AI fails
+// 3. Short, clean, professional responses only
+// 4. Always 1 message only
 // ============================================
 async function getAIResponse(userMessage, chatId) {
     const msg = userMessage.toLowerCase();
 
-    // Check for exact keywords first (faster)
-    const keywordResponse = findKeywordResponse(userMessage);
-    if (keywordResponse) return keywordResponse;
-
     // Get history for context
     const history = await getHistory(chatId);
 
-    // Try Groq if enabled
+    // 🎯 STEP 1: Try AI FIRST (Primary)
     if (BOT_CONFIG.useAI && isGroqEnabled()) {
         const groqResponse = await getGroqResponse(userMessage, chatId, history);
-        if (groqResponse) return groqResponse;
+        if (groqResponse) {
+            log('AI response generated (primary)', 'ai');
+            return groqResponse;
+        }
     }
 
-    // Fallback to templates
+    // 🎯 STEP 2: AI failed or disabled — Fallback to Keywords (Secondary)
+    log('AI unavailable, falling back to keywords', 'info');
+    const keywordResponse = findKeywordResponse(userMessage);
+    if (keywordResponse) return keywordResponse;
+
+    // 🎯 STEP 3: Keywords didn't match — Use templates
     if (BOT_CONFIG.useTemplates) {
         return await getTemplateResponse(userMessage, chatId);
     }
 
+    // Ultimate fallback
     return `Sorry bhai, main abhi samajh nahi paya. 🤔 Kya aap repeat karein?`;
 }
 
@@ -4967,7 +4978,14 @@ async function getAIResponseWithContext(userMessage, chatId, chatContext) {
         return aiResponse.content;
     }
 
-    // All AI failed — Use template fallback
+    // 🎯 AI Failed — Try Keywords (Secondary)
+    const keywordResponse = findKeywordResponse(userMessage);
+    if (keywordResponse) {
+        log(`Keywords used for ${chatId}`, 'info');
+        return keywordResponse;
+    }
+
+    // 🎯 All failed — Use template fallback
     log(`All AI services failed for ${chatId}, using template fallback`, 'warn');
     return getTemplateResponse(userMessage);
 }
@@ -4984,11 +5002,10 @@ function getTemplateResponse(userMessage) {
         }
     }
 
-    // Default responses
+    // Default responses — v4.0 Style
     const defaults = [
-        `Bhai, main samajh gaya! ❤️ SimFly Pakistan mein aapka welcome hai!\n\nKya help chahiye bhai?\n\n📱 Plans dekhne hain?\n💳 Payment methods?\n🛒 Order karna hai?`,
-        `Han bhai! ❤️ Main yahan hoon help ke liye.\n\nAapko kya chahiye?\n\n• 500MB Trial - Rs. 130\n• 1GB Plan - Rs. 400\n• 5GB Family - Rs. 1500`,
-        `Assalam-o-Alaikum bhai! ❤️\n\nSimFly Pakistan ke eSIM plans:\n\n⚡ 500MB - Rs. 130\n🔥 1GB - Rs. 400 (Most Popular)\n💎 5GB - Rs. 1500\n\nKaunsa plan lena hai bhai? 👍`
+        `Assalam-o-Alaikum! 👋\nSimFly Pakistan mein khush aamdeed 🇵🇰\n\nAap kya karna chahte hain?\n1️⃣ Plans dekhna\n2️⃣ Device check\n3️⃣ eSIM info\n4️⃣ Buy karna`,
+        `Main kya help kar sakta hoon?\n\n1️⃣ Plans dekhna\n2️⃣ Device check\n3️⃣ eSIM info\n4️⃣ Buy karna`
     ];
 
     return defaults[Math.floor(Math.random() * defaults.length)];
@@ -5512,15 +5529,16 @@ async function startWhatsApp() {
                     userFlow.state = FLOW_STATES.PLAN_SELECTION;
                     global.userFlows.set(chatId, userFlow);
 
-                    // Show plans
-                    const plansMsg = `Bilkul! SimFly ke 3 plans hain ✅
+                    // Show plans — v4.0 Prices
+                    const plansMsg = `📦 SimFly Pakistan Plans:
 
-📦 500MB — Rs. 130
-📦 1GB — Rs. 400
-📦 5GB — Rs. 1500
+📦 STARTER: 500MB — Rs 130
+📦 STANDARD: 1GB — Rs 350
+📦 PRO: 5GB — Rs 1,250
 
-Sab plans non-PTA phones ke liye perfect hain 🔥
-${userFlow.name ? userFlow.name : 'Bhai'}, konsa plan lena chahoge?`;
+✅ Validity: 2 YEARS
+
+Kaunsa plan pasand hai?`
 
                     await msg.reply(plansMsg);
                     await saveMessage(chatId, { body: plansMsg, fromMe: true, time: Date.now() });
@@ -5562,7 +5580,7 @@ Payment ke baad screenshot bhejo, main verify kar lunga ✅`;
                     }
 
                     // Generic response for other messages
-                    const helpMsg = `Koi sawal ho toh pooch sakte hain! Ya plan select karein:\n\n📦 500MB — Rs. 130\n📦 1GB — Rs. 400\n📦 5GB — Rs. 1500`;
+                    const helpMsg = `Main kya help kar sakta hoon?\n\n1️⃣ Plans dekhna\n2️⃣ Device check\n3️⃣ eSIM info\n4️⃣ Buy karna`;
                     await msg.reply(helpMsg);
                     await saveMessage(chatId, { body: helpMsg, fromMe: true, time: Date.now() });
                     return;
@@ -5574,7 +5592,7 @@ Payment ke baad screenshot bhejo, main verify kar lunga ✅`;
                     const isPaymentMention = lowerBody.includes('payment') || lowerBody.includes('send') || lowerBody.includes('bhej') || lowerBody.includes('done');
 
                     if (isPaymentMention) {
-                        const waitMsg = `Screenshot ka wait kar raha houn bhai! 📱 Jaise hi aaye ga, verify kar ke confirm kar dunga ✅`;
+                        const waitMsg = `Screenshot bhej dein. Verify karke confirm kar deta hoon.`;
                         await msg.reply(waitMsg);
                         await saveMessage(chatId, { body: waitMsg, fromMe: true, time: Date.now() });
                     } else {
