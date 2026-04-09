@@ -5205,10 +5205,9 @@ async function startWhatsApp() {
             // Initialize complete automation system
             initializeAutomation();
 
-            // Analyze all user chats on startup and create summaries
-            setTimeout(async () => {
-                await analyzeAllUserChats();
-            }, 10000); // Wait 10 seconds after startup
+            // Skip chat analysis on startup to avoid waitForChatLoading errors
+            // Chat analysis can be triggered manually via /chatanalysis command
+            log('Skipping startup chat analysis to prevent errors', 'info');
         });
 
         client.on('disconnected', (reason) => {
@@ -5217,6 +5216,24 @@ async function startWhatsApp() {
             State.status = 'DISCONNECTED';
             client = null;
             setTimeout(startWhatsApp, 5000);
+        });
+
+        client.on('auth_failure', (msg) => {
+            log('Auth failure: ' + msg, 'error');
+            State.status = 'AUTH_FAILED';
+        });
+
+        client.on('loading_screen', (percent, message) => {
+            log(`Loading: ${percent}% - ${message}`);
+        });
+
+        // Handle errors gracefully
+        client.on('error', (error) => {
+            log('Client error: ' + error.message, 'error');
+            // Don't crash on chat history errors
+            if (error.message && error.message.includes('waitForChatLoading')) {
+                log('Chat loading error - continuing without history', 'warn');
+            }
         });
 
         // MESSAGE HANDLER
