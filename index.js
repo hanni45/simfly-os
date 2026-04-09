@@ -33,6 +33,13 @@ const {
     APP_URL,
     BUSINESS,
     BOT_CONFIG,
+    AUTOMATION,
+    ANALYTICS,
+    MARKETING,
+    SECURITY,
+    ADMIN_TOOLS,
+    INVENTORY,
+    RETENTION,
     SYSTEM_PROMPT,
     KEYWORD_RESPONSES,
     DB_CONFIG,
@@ -44,11 +51,6 @@ const {
     isFirebaseEnabled,
     isGeminiEnabled
 } = require('./config');
-
-// Add this code after line 30 in index.js (after the imports)
-
-// Import Automation Config
-const { AUTOMATION } = require('./config');
 
 // ═══════════════════════════════════════════════════════
 // 🔧 STARTUP CONFIGURATION CHECK
@@ -483,6 +485,558 @@ function adaptTone(profile, response) {
 // Feature 30: Sentiment Analysis Auto-Escalation
 function shouldEscalate(profile) {
     return profile.sentiment < -5 || profile.urgency > 7 || profile.mood === 'frustrated';
+}
+
+// ═══════════════════════════════════════════════════════
+// 📊 ANALYTICS & INSIGHTS SYSTEM v4.0
+// ═══════════════════════════════════════════════════════
+
+// Analytics Data Storage
+const analyticsData = {
+    hourlyActivity: new Array(24).fill(0),
+    sourceBreakdown: {},
+    funnelData: {},
+    topCustomers: [],
+    dailyStats: {
+        date: new Date().toDateString(),
+        totalMessages: 0,
+        orders: 0,
+        revenue: 0,
+        conversions: 0
+    }
+};
+
+// Track customer source
+function trackCustomerSource(chatId, source) {
+    if (!ANALYTICS.trackPeakHours) return;
+    const profile = getUserProfile(chatId);
+    if (!profile.source) {
+        profile.source = source || 'organic';
+        analyticsData.sourceBreakdown[source] = (analyticsData.sourceBreakdown[source] || 0) + 1;
+    }
+}
+
+// Track peak hours
+function trackPeakHour() {
+    if (!ANALYTICS.trackPeakHours) return;
+    const hour = new Date().getHours();
+    analyticsData.hourlyActivity[hour]++;
+}
+
+// Track funnel stage
+function trackFunnelStage(chatId, stage) {
+    if (!ANALYTICS.funnelStages.includes(stage)) return;
+    analyticsData.funnelData[stage] = (analyticsData.funnelData[stage] || 0) + 1;
+}
+
+// Generate daily report
+function generateDailyReport() {
+    const hour = new Date().getHours();
+    if (hour !== 21) return null; // Only at 9 PM
+
+    const peakHour = analyticsData.hourlyActivity.indexOf(Math.max(...analyticsData.hourlyActivity));
+    const topSource = Object.entries(analyticsData.sourceBreakdown)
+        .sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+
+    return `📊 *DAILY REPORT*
+
+💬 Total Messages: ${analyticsData.dailyStats.totalMessages}
+🛒 Orders Today: ${analyticsData.dailyStats.orders}
+💰 Revenue: Rs ${analyticsData.dailyStats.revenue}
+📈 Conversions: ${analyticsData.dailyStats.conversions}
+
+⏰ Peak Hour: ${peakHour}:00
+📱 Top Source: ${topSource}
+
+📊 Funnel:
+${Object.entries(analyticsData.funnelData).map(([k, v]) => `• ${k}: ${v}`).join('\n')}`;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🎯 MARKETING AUTOMATION SYSTEM v4.0
+// ═══════════════════════════════════════════════════════
+
+// Referral System
+const referralCodes = new Map();
+const referralRewards = new Map();
+
+function generateReferralCode(chatId) {
+    if (!MARKETING.referral.enabled) return null;
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    referralCodes.set(code, { referrer: chatId, used: false });
+    return code;
+}
+
+function processReferral(code, newCustomerChatId) {
+    if (!MARKETING.referral.enabled) return false;
+    const referral = referralCodes.get(code);
+    if (!referral || referral.used) return false;
+
+    referral.used = true;
+    referralRewards.set(referral.referrer, (referralRewards.get(referral.referrer) || 0) + MARKETING.referral.rewardAmount);
+    return true;
+}
+
+// Abandoned Cart Recovery
+const abandonedCarts = new Map();
+
+function trackAbandonedCart(chatId, planType) {
+    if (!MARKETING.abandonedCart.enabled) return;
+    abandonedCarts.set(chatId, {
+        plan: planType,
+        timestamp: Date.now(),
+        remindersSent: 0
+    });
+}
+
+function checkAbandonedCarts() {
+    if (!MARKETING.abandonedCart.enabled) return [];
+    const now = Date.now();
+    const toRemind = [];
+
+    for (const [chatId, data] of abandonedCarts) {
+        if (data.remindersSent < MARKETING.abandonedCart.maxReminders &&
+            now - data.timestamp > MARKETING.abandonedCart.delay) {
+            toRemind.push({ chatId, plan: data.plan });
+            data.remindersSent++;
+            data.timestamp = now;
+        }
+    }
+    return toRemind;
+}
+
+// Loyalty Program
+function getLoyaltyTier(ordersCount) {
+    if (!MARKETING.loyalty.enabled) return null;
+    for (let i = MARKETING.loyalty.tiers.length - 1; i >= 0; i--) {
+        if (ordersCount >= MARKETING.loyalty.tiers[i].orders) {
+            return MARKETING.loyalty.tiers[i];
+        }
+    }
+    return MARKETING.loyalty.tiers[0];
+}
+
+function calculateLoyaltyDiscount(ordersCount) {
+    const tier = getLoyaltyTier(ordersCount);
+    return tier ? tier.discount : 0;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🛡️ SECURITY & ANTI-FRAUD SYSTEM v4.0
+// ═══════════════════════════════════════════════════════
+
+// Screenshot Hash Storage
+const processedScreenshots = new Set();
+const messageHistory = new Map(); // chatId -> [{ message, timestamp }]
+const failedAttempts = new Map();
+const blacklist = new Set();
+
+// Duplicate Detection (simplified hash)
+function generateImageHash(imageData) {
+    if (!SECURITY.duplicateDetection.enabled) return null;
+    // Simple hash - first 100 chars of base64
+    return imageData.substring(0, 100);
+}
+
+function isDuplicateScreenshot(imageData) {
+    if (!SECURITY.duplicateDetection.enabled) return false;
+    const hash = generateImageHash(imageData);
+    if (processedScreenshots.has(hash)) return true;
+    processedScreenshots.add(hash);
+    return false;
+}
+
+// Spam Protection
+function checkSpam(chatId, message) {
+    if (!SECURITY.spamProtection.enabled) return { isSpam: false };
+
+    const now = Date.now();
+    const history = messageHistory.get(chatId) || [];
+
+    // Clean old messages (older than 1 minute)
+    const recentMessages = history.filter(m => now - m.timestamp < 60000);
+
+    // Check rate
+    if (recentMessages.length >= SECURITY.spamProtection.maxMessagesPerMinute) {
+        return { isSpam: true, reason: 'rate_limit' };
+    }
+
+    // Check for similar messages
+    const similarCount = recentMessages.filter(m =>
+        similarity(m.message, message) > SECURITY.spamProtection.similarMessageThreshold
+    ).length;
+
+    if (similarCount >= 3) {
+        return { isSpam: true, reason: 'duplicate_content' };
+    }
+
+    recentMessages.push({ message, timestamp: now });
+    messageHistory.set(chatId, recentMessages);
+
+    return { isSpam: false };
+}
+
+function similarity(str1, str2) {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    if (longer.length === 0) return 1.0;
+    const distance = editDistance(longer, shorter);
+    return (longer.length - distance) / longer.length;
+}
+
+function editDistance(str1, str2) {
+    const costs = [];
+    for (let i = 0; i <= str1.length; i++) {
+        let lastValue = i;
+        for (let j = 0; j <= str2.length; j++) {
+            if (i === 0) costs[j] = j;
+            else if (j > 0) {
+                let newValue = costs[j - 1];
+                if (str1[i - 1] !== str2[j - 1])
+                    newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                costs[j - 1] = lastValue;
+                lastValue = newValue;
+            }
+        }
+        if (i > 0) costs[str2.length] = lastValue;
+    }
+    return costs[str2.length];
+}
+
+// Suspicious Activity Detection
+function trackFailedPayment(chatId) {
+    if (!SECURITY.suspiciousActivity.enabled) return;
+    const attempts = (failedAttempts.get(chatId) || 0) + 1;
+    failedAttempts.set(chatId, attempts);
+
+    if (attempts >= SECURITY.suspiciousActivity.maxFailedPayments) {
+        return { suspicious: true, reason: 'multiple_failed_payments', attempts };
+    }
+    return { suspicious: false };
+}
+
+// Blacklist System
+function isBlacklisted(chatId) {
+    if (!SECURITY.blacklist.enabled) return false;
+    return blacklist.has(chatId);
+}
+
+function addToBlacklist(chatId, reason) {
+    if (!SECURITY.blacklist.enabled) return;
+    blacklist.add(chatId);
+    log(`Blacklisted ${chatId}: ${reason}`, 'warn');
+}
+
+// ═══════════════════════════════════════════════════════
+// 🔧 ADMIN TOOLS SYSTEM v4.0
+// ═══════════════════════════════════════════════════════
+
+// Customer Notes
+const customerNotes = new Map();
+
+function addCustomerNote(chatId, note, category = 'general') {
+    if (!ADMIN_TOOLS.customerNotes.enabled) return false;
+    if (note.length > ADMIN_TOOLS.customerNotes.maxLength) return false;
+
+    const notes = customerNotes.get(chatId) || [];
+    notes.push({ note, category, timestamp: Date.now(), author: 'admin' });
+    customerNotes.set(chatId, notes);
+    return true;
+}
+
+function getCustomerNotes(chatId) {
+    return customerNotes.get(chatId) || [];
+}
+
+// Quick Replies
+function getQuickReply(key) {
+    if (!ADMIN_TOOLS.quickReplies.enabled) return null;
+    return ADMIN_TOOLS.quickReplies.templates.find(t => t.key === key)?.message || null;
+}
+
+// Broadcast System
+const broadcastQueue = [];
+let broadcastInProgress = false;
+
+async function sendBroadcast(message, segment = 'all') {
+    if (!ADMIN_TOOLS.broadcast.enabled) return { sent: 0, failed: 0 };
+
+    let targets = [];
+    for (const [chatId, profile] of userProfiles) {
+        if (segment === 'all') targets.push(chatId);
+        else if (segment === 'purchased' && profile.purchased) targets.push(chatId);
+        else if (segment === 'not_purchased' && !profile.purchased) targets.push(chatId);
+    }
+
+    let sent = 0, failed = 0;
+    for (const chatId of targets) {
+        try {
+            await client.sendMessage(chatId, message);
+            sent++;
+            await delay(60000 / ADMIN_TOOLS.broadcast.rateLimit); // Rate limiting
+        } catch (e) {
+            failed++;
+        }
+    }
+    return { sent, failed };
+}
+
+// Export Data
+function exportCustomerData(format = 'json') {
+    if (!ADMIN_TOOLS.export.enabled) return null;
+
+    const data = [];
+    for (const [chatId, profile] of userProfiles) {
+        data.push({
+            chatId,
+            name: profile.name,
+            device: profile.device,
+            purchased: profile.purchased,
+            planType: profile.preferredPlan,
+            firstSeen: profile.firstSeen,
+            lastSeen: profile.lastSeen,
+            notes: getCustomerNotes(chatId)
+        });
+    }
+
+    if (format === 'csv') {
+        const headers = ['chatId', 'name', 'device', 'purchased', 'planType', 'firstSeen', 'lastSeen'];
+        const csv = [headers.join(','), ...data.map(row =>
+            headers.map(h => JSON.stringify(row[h] || '')).join(',')
+        )].join('\n');
+        return csv;
+    }
+
+    return JSON.stringify(data, null, 2);
+}
+
+// ═══════════════════════════════════════════════════════
+// 📦 INVENTORY MANAGEMENT SYSTEM v4.0
+// ═══════════════════════════════════════════════════════
+
+const stockLevels = {
+    '500mb': 50,
+    '1gb': 50,
+    '5gb': 20
+};
+
+const stockHistory = [];
+
+// Update stock
+function updateStock(planType, quantity) {
+    if (!stockLevels[planType]) return false;
+    stockLevels[planType] = Math.max(0, quantity);
+    stockHistory.push({ plan: planType, quantity, timestamp: Date.now() });
+    return true;
+}
+
+// Check stock
+function getStock(planType) {
+    return stockLevels[planType] || 0;
+}
+
+// Predict stock depletion (simple linear)
+function predictStockDepletion(planType) {
+    if (!INVENTORY.prediction.enabled) return null;
+
+    const planHistory = stockHistory.filter(h => h.plan === planType);
+    if (planHistory.length < 3) return null;
+
+    // Simple average consumption
+    const dailyConsumption = planHistory.length / 7; // Assuming a week of data
+    const currentStock = getStock(planType);
+    const daysLeft = Math.floor(currentStock / dailyConsumption);
+
+    return {
+        plan: planType,
+        currentStock,
+        daysLeft,
+        willDepleteOn: new Date(Date.now() + daysLeft * 24 * 60 * 60 * 1000).toDateString()
+    };
+}
+
+// Check if reorder needed
+function checkReorderNeeded() {
+    if (!INVENTORY.autoReorder.enabled) return [];
+
+    const alerts = [];
+    for (const [plan, level] of Object.entries(stockLevels)) {
+        if (level <= INVENTORY.autoReorder.threshold) {
+            alerts.push({ plan, currentLevel: level });
+        }
+    }
+    return alerts;
+}
+
+// ═══════════════════════════════════════════════════════
+// 🎁 CUSTOMER RETENTION SYSTEM v4.0
+// ═══════════════════════════════════════════════════════
+
+const customerBirthdays = new Map();
+const lastPurchaseDate = new Map();
+const feedbackCollected = new Set();
+const vipCustomers = new Set();
+
+// Set customer birthday
+function setCustomerBirthday(chatId, birthday) {
+    if (!RETENTION.birthday.enabled) return;
+    customerBirthdays.set(chatId, birthday); // MM-DD format
+}
+
+// Check for birthday offers
+function checkBirthdayOffers() {
+    if (!RETENTION.birthday.enabled) return [];
+
+    const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' });
+    const birthdayCustomers = [];
+
+    for (const [chatId, birthday] of customerBirthdays) {
+        if (birthday === today) {
+            birthdayCustomers.push({
+                chatId,
+                message: RETENTION.birthday.messageTemplate.replace('{discount}', RETENTION.birthday.discount)
+            });
+        }
+    }
+    return birthdayCustomers;
+}
+
+// Track last purchase for win-back
+function trackPurchase(chatId, amount) {
+    lastPurchaseDate.set(chatId, Date.now());
+
+    // Check VIP status
+    const profile = getUserProfile(chatId);
+    if (profile.ordersCount >= RETENTION.vip.criteria.orders ||
+        profile.totalSpent >= RETENTION.vip.criteria.amount) {
+        vipCustomers.add(chatId);
+    }
+}
+
+// Check win-back candidates
+function checkWinBackCandidates() {
+    if (!RETENTION.winback.enabled) return [];
+
+    const now = Date.now();
+    const candidates = [];
+
+    for (const [chatId, lastDate] of lastPurchaseDate) {
+        const daysSince = (now - lastDate) / (1000 * 60 * 60 * 24);
+        if (daysSince >= RETENTION.winback.triggerDays && daysSince <= RETENTION.winback.triggerDays + 7) {
+            candidates.push({
+                chatId,
+                message: RETENTION.winback.message,
+                daysSince: Math.floor(daysSince)
+            });
+        }
+    }
+    return candidates;
+}
+
+// Request feedback
+function shouldRequestFeedback(chatId) {
+    if (!RETENTION.feedback.enabled) return false;
+    if (feedbackCollected.has(chatId)) return false;
+
+    const profile = getUserProfile(chatId);
+    if (!profile.purchased) return false;
+
+    const daysSince = (Date.now() - profile.lastSeen) / (1000 * 60 * 60 * 24);
+    return daysSince >= RETENTION.feedback.delayDays;
+}
+
+function markFeedbackCollected(chatId) {
+    feedbackCollected.add(chatId);
+    const profile = getUserProfile(chatId);
+    profile.feedbackGiven = true;
+}
+
+// Check VIP status
+function isVIPCustomer(chatId) {
+    if (!RETENTION.vip.enabled) return false;
+    return vipCustomers.has(chatId);
+}
+
+function getVIPBenefits() {
+    return RETENTION.vip.benefits;
+}
+
+// Helper delay function
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ═══════════════════════════════════════════════════════
+// 📱 ORDER TRACKING SYSTEM
+// ═══════════════════════════════════════════════════════
+
+const orders = new Map();
+
+function createOrder(chatId, planType, amount) {
+    const orderId = `ORD${Date.now()}`;
+    orders.set(orderId, {
+        id: orderId,
+        chatId,
+        plan: planType,
+        amount,
+        status: 'pending',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+    });
+    return orderId;
+}
+
+function updateOrderStatus(orderId, status) {
+    const order = orders.get(orderId);
+    if (!order) return false;
+    order.status = status;
+    order.updatedAt = Date.now();
+    return true;
+}
+
+function getOrderStatus(orderId) {
+    const order = orders.get(orderId);
+    if (!order) return null;
+    return {
+        id: order.id,
+        plan: order.plan,
+        amount: order.amount,
+        status: order.status,
+        created: new Date(order.createdAt).toLocaleString(),
+        updated: new Date(order.updatedAt).toLocaleString()
+    };
+}
+
+function getCustomerOrders(chatId) {
+    return Array.from(orders.values()).filter(o => o.chatId === chatId);
+}
+
+// ═══════════════════════════════════════════════════════
+// 🌍 URDU SCRIPT SUPPORT
+// ═══════════════════════════════════════════════════════
+
+const URDU_KEYWORDS = {
+    'سلام': 'greeting',
+    'ہیلو': 'greeting',
+    'پلان': 'plan',
+    'قیمت': 'price',
+    'ادائیگی': 'payment',
+    'آرڈر': 'order',
+    'مدد': 'help',
+    'شکریہ': 'thanks',
+    'الوداع': 'bye'
+};
+
+function detectUrduScript(message) {
+    const urduRange = /[\u0600-\u06FF]/;
+    return urduRange.test(message);
+}
+
+function translateUrduIntent(message) {
+    for (const [urdu, intent] of Object.entries(URDU_KEYWORDS)) {
+        if (message.includes(urdu)) return intent;
+    }
+    return null;
 }
 
 // ============================================

@@ -159,7 +159,20 @@ const AUTOMATION = {
   // Conversion Recovery
   conversionRecoveryEnabled: true,
   recoveryDelay: 24 * 60 * 60 * 1000, // 24 hours
-  recoveryDiscount: '10%' // Offer discount
+  recoveryDiscount: '10%', // Offer discount
+
+  // Analytics Settings
+  analyticsEnabled: true,
+  analyticsReportTime: '21:00', // Daily report at 9 PM
+
+  // Customer Source Tracking
+  sourceTrackingEnabled: true,
+
+  // Peak Hours Analysis
+  peakHoursTracking: true,
+
+  // Top Customers Report
+  topCustomersLimit: 10
 };
 
 // ═══════════════════════════════════════════════════════
@@ -537,19 +550,96 @@ FOLLOW-UP (after 24h):
 // ═══════════════════════════════════════════════════════
 // FIREBASE COLLECTIONS SCHEMA v4.0
 // ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+// ANALYTICS & INSIGHTS CONFIGURATION
+// ═══════════════════════════════════════════════════════
+const ANALYTICS = {
+  sources: ['instagram', 'facebook', 'organic', 'referral', 'whatsapp_status', 'friend'],
+  funnelStages: ['viewed_plans', 'selected_plan', 'payment_pending', 'payment_sent', 'completed', 'activated'],
+  trackPeakHours: true,
+  dailyReport: { enabled: true, time: '21:00' }
+};
+
+// ═══════════════════════════════════════════════════════
+// MARKETING AUTOMATION CONFIG
+// ═══════════════════════════════════════════════════════
+const MARKETING = {
+  referral: { enabled: true, rewardAmount: 50, minPurchaseForReward: 130 },
+  abandonedCart: { enabled: true, delay: 2 * 60 * 60 * 1000, maxReminders: 2 },
+  seasonalPromotions: { enabled: true },
+  loyalty: { enabled: true, tiers: [
+    { name: 'Bronze', orders: 1, discount: 0 },
+    { name: 'Silver', orders: 3, discount: 5 },
+    { name: 'Gold', orders: 5, discount: 10 },
+    { name: 'Platinum', orders: 10, discount: 15 }
+  ]}
+};
+
+// ═══════════════════════════════════════════════════════
+// SECURITY & ANTI-FRAUD CONFIG
+// ═══════════════════════════════════════════════════════
+const SECURITY = {
+  duplicateDetection: { enabled: true, blockDuration: 24 * 60 * 60 * 1000 },
+  spamProtection: { enabled: true, maxMessagesPerMinute: 10, blockDuration: 60 * 60 * 1000 },
+  suspiciousActivity: { enabled: true, maxFailedPayments: 3 },
+  blacklist: { enabled: true, autoBlacklistAfter: 3 }
+};
+
+// ═══════════════════════════════════════════════════════
+// ADMIN TOOLS CONFIG
+// ═══════════════════════════════════════════════════════
+const ADMIN_TOOLS = {
+  broadcast: { enabled: true, rateLimit: 100 },
+  customerNotes: { enabled: true, maxLength: 500 },
+  quickReplies: { enabled: true },
+  export: { enabled: true, formats: ['csv', 'json'] }
+};
+
+// ═══════════════════════════════════════════════════════
+// INVENTORY MANAGEMENT CONFIG
+// ═══════════════════════════════════════════════════════
+const INVENTORY = {
+  prediction: { enabled: true, daysAhead: 3, alertThreshold: 5 },
+  autoReorder: { enabled: true, threshold: 5 },
+  dailyReport: { enabled: true, time: '09:00' }
+};
+
+// ═══════════════════════════════════════════════════════
+// CUSTOMER RETENTION CONFIG
+// ═══════════════════════════════════════════════════════
+const RETENTION = {
+  birthday: { enabled: true, discount: '20%' },
+  winback: { enabled: true, triggerDays: 30, discount: '15%' },
+  feedback: { enabled: true, delayDays: 7 },
+  vip: { enabled: true, criteria: { orders: 5, amount: 1000 } }
+};
+
+// ═══════════════════════════════════════════════════════
+// CUSTOMER DATA STORAGE - Firebase/Google Sheets
+// ═══════════════════════════════════════════════════════
 const CUSTOMER_SCHEMA = {
   chatId: 'string',
-  name: 'string',           // Customer name
-  device: 'string',         // Device model
+  name: 'string',
+  device: 'string',
   deviceCompatible: 'boolean',
-  isJV: 'boolean',          // SIM Locked
+  isJV: 'boolean',
   firstSeen: 'timestamp',
   lastSeen: 'timestamp',
   messageCount: 'number',
   purchased: 'boolean',
-  planType: 'string',       // Which plan they bought
-  errors: 'array',          // Any errors they faced
-  source: 'string'          // 'instagram', 'facebook', 'organic'
+  planType: 'string',
+  errors: 'array',
+  source: 'string',
+  tags: 'array',
+  loyaltyPoints: 'number',
+  totalSpent: 'number',
+  ordersCount: 'number',
+  notes: 'array',
+  banned: 'boolean',
+  banReason: 'string',
+  lastReminder: 'timestamp',
+  feedbackGiven: 'boolean',
+  birthday: 'string'
 };
 
 // ═══════════════════════════════════════════════════════
@@ -699,6 +789,14 @@ module.exports = {
   AUTOMATION,
   TEST_BOARD,
   BOT_MODE,
+
+  // New Feature Configs
+  ANALYTICS,
+  MARKETING,
+  SECURITY,
+  ADMIN_TOOLS,
+  INVENTORY,
+  RETENTION,
 
   // Gemini AI Config
   GEMINI_APIS,
