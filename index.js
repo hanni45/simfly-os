@@ -627,7 +627,6 @@ function calculateLoyaltyDiscount(ordersCount) {
 
 // Screenshot Hash Storage
 const processedScreenshots = new Set();
-const messageHistory = new Map(); // chatId -> [{ message, timestamp }]
 const failedAttempts = new Map();
 const blacklist = new Set();
 
