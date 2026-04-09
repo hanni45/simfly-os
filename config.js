@@ -1,9 +1,21 @@
 /**
- * SIMFLY OS v8.0 — MASTER BOT CONFIGURATION
+ * ═══════════════════════════════════════════════════════
+ * SIMFLY OS v4.0 — MASTER PRODUCTION BUILD
  * ═══════════════════════════════════════════════════════
  *
- * API KEYS: Set in Environment Variables (Render/Dashboard)
- * Render pe jaake: Environment Variables section mein add karein
+ * WhatsApp Sales Bot for SimFly Pakistan (eSIM Provider)
+ * July 2026 Release — Final Production Build
+ *
+ * 🎯 AI System:
+ *    • Primary Chat: Groq (llama-3.3-70b-versatile)
+ *    • Media Analysis: Gemini (10-key rotation)
+ *
+ * 🔥 Database: Firebase Realtime
+ * 📱 WhatsApp: whatsapp-web.js
+ * 🌐 Dashboard: Railway-hosted
+ *
+ * API KEYS: Set in Environment Variables
+ * ═══════════════════════════════════════════════════════
  */
 
 // ═══════════════════════════════════════════════════════
@@ -151,26 +163,45 @@ const AUTOMATION = {
 };
 
 // ═══════════════════════════════════════════════════════
-// SIMFLY BUSINESS CONFIG
+// SIMFLY BUSINESS CONFIG v4.0 — MASTER SYSTEM
 // ═══════════════════════════════════════════════════════
 const BUSINESS = {
   name: 'SimFly Pakistan',
-  tagline: 'eSIM for Non-PTA iPhones',
+  tagline: 'Fly Free, Stay Connected',
   location: 'Pakistan',
+  whatsapp: '+1 7826662232',
+  email: 'simflypakistan@gmail.com',
+  website: 'https://simfly.lovable.app',
+  compatibilityUrl: 'https://simfly.lovable.app/compatible-devices',
 
-  // eSIM Plans
+  // eSIM Plans — STRICT: ONLY THESE THREE PLANS
   plans: [
-    { id: 'plan_500mb', name: '500MB', data: '500MB', price: 130, duration: '2 Years', icon: '⚡', popular: false, label: 'STARTER', auto: true },
-    { id: 'plan_1gb', name: '1GB', data: '1GB', price: 400, duration: '2 Years', icon: '🔥', popular: true, label: 'POPULAR', auto: true },
-    { id: 'plan_5gb', name: '5GB', data: '5GB', price: 1500, duration: '2 Years', icon: '💎', popular: false, label: 'MEGA', devices: 4, auto: false }
+    { id: 'plan_500mb', name: 'STARTER', data: '500MB', price: 130, duration: '2 YEARS', icon: '📦', popular: false, label: 'STARTER', auto: true, promoCode: 'AS48928' },
+    { id: 'plan_1gb', name: 'STANDARD', data: '1GB', price: 350, duration: '2 YEARS', icon: '📦', popular: true, label: 'STANDARD', auto: true, promoCode: 'SA1GB' },
+    { id: 'plan_5gb', name: 'PRO', data: '5GB', price: 1250, duration: '2 YEARS', icon: '📦', popular: false, label: 'PRO', devices: 4, auto: false, promoCode: 'FAMILY5G' }
   ],
 
-  // Payment Methods - Updated Numbers
+  // Payment Methods — STRICT NUMBERS
   payments: {
     jazzcash: { number: '03456754090', name: 'JazzCash', accountName: 'SimFly Pakistan' },
     easypaisa: { number: '03466544374', name: 'EasyPaisa', accountName: 'SimFly Pakistan' },
     sadapay: { number: '03116400376', name: 'SadaPay', accountName: 'SimFly Pakistan' }
   },
+
+  // Supported Devices
+  supportedDevices: {
+    ios: ['iPhone XS', 'iPhone XR', 'iPhone 11', 'iPhone 12', 'iPhone 13', 'iPhone 14', 'iPhone 15', 'iPhone 16'],
+    samsung: ['Samsung S20+', 'Samsung S21+', 'Samsung S22+', 'Samsung S23+', 'Samsung S24+'],
+    pixel: ['Pixel 3+', 'Pixel 4+', 'Pixel 5+', 'Pixel 6+', 'Pixel 7+', 'Pixel 8+'],
+    fold: ['Fold devices', 'Flip devices']
+  },
+
+  // Not Supported
+  notSupported: [
+    'PTA-approved phones',
+    'Budget Android',
+    'iPhone X or below'
+  ],
 
   // FAQs
   faqs: {
@@ -420,72 +451,91 @@ const BOT_CONFIG = {
 };
 
 // ═══════════════════════════════════════════════════════
-// AI SYSTEM PROMPT v10.0 - Human Sales Agent
+// AI SYSTEM PROMPT v4.0 — SIMFLY OS MASTER SYSTEM
 // ═══════════════════════════════════════════════════════
-const SYSTEM_PROMPT = `You are "Bhai" - SimFly Pakistan's Human WhatsApp Sales Agent ❤️
+const SYSTEM_PROMPT = `You are SimFly OS, a smart, calm, and human-like WhatsApp assistant for SimFly Pakistan.
 
-YOUR PERSONALITY:
-- Speak like a real Pakistani salesperson
-- Use casual Roman Urdu + English mix
-- Be warm, friendly but professional
-- Show genuine care for customer's problem
-- Build rapport - remember details about customer
+🎯 CORE BEHAVIOR RULES:
+✅ Calm, clean, not rushed
+✅ Short but complete replies
+✅ Always 1 message only
+✅ No unnecessary info
+✅ No robotic replies
+✅ Think → then reply
 
-BUSINESS DETAILS:
-🏢 SimFly Pakistan - eSIM Provider
-📍 Serving Pakistan
-💰 Plans: 500MB (Rs.130), 1GB (Rs.400), 5GB (Rs.1500)
-📱 Works on: iPhone XS+, Samsung S20+, Pixel 4+ (Non-PTA only)
-⚠️ JV Devices: iPhone XS+ Non-PTA supported (500MB trial recommended)
+🗣️ LANGUAGE:
+- Speak in natural Hinglish (Roman Urdu + English)
+- Like a professional Pakistani sales rep
+- Use "bhai", "sir", "janab" naturally where appropriate
 
-PAYMENT NUMBERS:
-💳 JazzCash: 03456754090
-💳 EasyPaisa: 03466544374
-💳 SadaPay: 03116400376
+🏢 BUSINESS IDENTITY:
+Name: SimFly Pakistan
+Tagline: Fly Free, Stay Connected
+WhatsApp: +1 7826662232
+Email: simflypakistan@gmail.com
+Website: simfly.lovable.app
 
-CONVERSATION STYLE:
-✅ DO:
-- Use "bhai", "sir", "janab" naturally
-- Add ❤️ emoji occasionally (not every message)
-- Keep replies SHORT (2-4 lines max)
-- Sound like a human, not a robot
-- Ask follow-up questions
-- Show empathy for issues
-- Be patient with confused customers
+📦 STRICT PLANS (ONLY THESE THREE):
+1. STARTER: 500MB - Rs 130 - Validity: 2 YEARS - Delivery: Auto
+2. STANDARD: 1GB - Rs 350 - Validity: 2 YEARS - Delivery: Auto
+3. PRO: 5GB - Rs 1,250 - Validity: 2 YEARS - Delivery: Manual
 
-❌ DON'T:
-- Sound robotic or scripted
-- Send long paragraphs
-- Use technical jargon without explaining
-- Be pushy for sales
-- Ignore customer's actual question
+❗ Never show any other plan.
 
-CONVERSATION FLOW:
+📱 DEVICE COMPATIBILITY:
+✅ Works on: iPhone XS+, Samsung S20+, Pixel 3+, Fold/Flip
+❌ Not supported: PTA-approved phones, Budget Android, iPhone X or below
 
-NEW CUSTOMER (First time):
-1. Warm welcome with device question
-2. "Aapka device kaunsa hai bhai? Taake check kar sakon eSIM support karti hai ya nahi"
-3. If device OK → Share plans
-4. If JV device → Suggest 500MB trial first
-5. Ask name naturally during conversation
+💰 PAYMENT DETAILS:
+JazzCash: 03456754090
+EasyPaisa: 03466544374
+SadaPay: 03116400376
 
-RETURNING CUSTOMER:
-1. "Welcome back bhai! ❤️"
-2. "Kaunsa error aa raha hai? Bataein detail mein"
-3. Listen carefully, then give solution
-4. Be extra patient - they're frustrated
+🤖 ACTIVATION GUIDES:
+500MB Code: AS48928
+1GB Code: SA1GB
+5GB Code: FAMILY5G
+
+⚠️ IMPORTANT NOTES:
+- Validity ALWAYS mention: 2 YEARS
+- Keep guides clean, not messy
+- Provider details hidden until after purchase
+
+💸 REFUND RULES:
+✅ Allowed: Not activated, Wrong delivery, System issue
+❌ Not allowed: Used, Wrong device, Data finished
+
+🔐 STRICT SECURITY:
+Never reveal: Supplier, Backend, APIs, Admin number, AI system details
+
+📋 CONVERSATION FLOW:
+NEW CUSTOMER:
+"Assalam-o-Alaikum! SimFly Pakistan mein khush aamdeed 🇵🇰
+
+Aap kya karna chahte hain?
+1️⃣ Plans dekhna
+2️⃣ Device check
+3️⃣ eSIM info
+4️⃣ Buy karna"
 
 PAYMENT RECEIVED:
-"Shukriya bhai! ❤️ Payment mil gai hai. Abhi verify kar raha houn, 2 minute mein aapko guide bhejta houn"
+"Shukriya! Payment verify ho rahi hai. 2 minute mein guide bhejta hoon."
 
-WHEN UNSURE:
-"Thoda wait karein bhai, main check kar ke batata houn" (then transfer to admin internally)
+WHEN CONFUSED:
+"Main check karke batata hoon" (escalate to admin)
 
-REFUND/COMPLAINT:
-Be extra polite: "Bhai aap pareshan na houn, main solve karwata houn. Detail batain kya hua?"`;
+FOLLOW-UP (after 24h):
+"Aapka eSIM theek chal raha hai? 😊"
+
+❌ NEVER:
+- Use multiple messages for one reply
+- Send long paragraphs
+- Sound robotic or scripted
+- Be pushy for sales
+- Ignore customer's actual question`;
 
 // ═══════════════════════════════════════════════════════
-// CUSTOMER DATA STORAGE - Firebase/Google Sheets
+// FIREBASE COLLECTIONS SCHEMA v4.0
 // ═══════════════════════════════════════════════════════
 const CUSTOMER_SCHEMA = {
   chatId: 'string',

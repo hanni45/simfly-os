@@ -1,139 +1,266 @@
-# SimFly OS v7.0 - Config.js Edition
+# 🚀 SimFly OS v4.0
 
-WhatsApp Sales Bot for SimFly Pakistan (eSIM Provider) - **No .env file needed!**
+**Master Production Build — July 2026**
 
-## What's New in v7.0
+> WhatsApp Sales & Support Bot for SimFly Pakistan — eSIM Provider
+> 
+> *Fly Free, Stay Connected*
 
-✅ **No .env file required** - Everything in `config.js`  
-✅ **No Firebase** - Uses local JSON database  
-✅ **No external APIs** - Template-based responses  
-✅ **Simple setup** - Just edit config.js and run  
-✅ **Order tracking** - Built-in order management
+---
 
-## Quick Setup
+## 🧠 Core Identity
 
-### Step 1: Edit Config
+SimFly OS is a smart, calm, and human-like WhatsApp assistant for SimFly Pakistan.
 
-Open `config.js` and edit these values:
+**Language:** Natural Hinglish (Roman Urdu + English)  
+**Tone:** Professional Pakistani sales representative
 
-```javascript
-// Line 12: Change to your WhatsApp number (with country code)
-ADMIN_NUMBER: '923001234567',
+---
 
-// Line 54: Edit your eSIM plans
-plans: [
-    { name: '500MB', data: '500MB', price: 130, duration: '2 Years', ... },
-    { name: '1GB', data: '1GB', price: 400, duration: '2 Years', ... },
-    { name: '5GB', data: '5GB', price: 1500, duration: '2 Years', ... }
-],
+## 📦 Features
 
-// Line 60: Edit your payment methods
-payments: {
-    easypaisa: { number: '03466544374', name: 'EasyPaisa', accountName: 'Shafqat' },
-    jazzcash: { number: '03456754090', name: 'JazzCash', accountName: 'Shafqat' },
-    sadapay: { number: '03116400376', name: 'SadaPay', accountName: 'Abdullah Saahi' }
-},
-```
+| Feature | Description |
+|---------|-------------|
+| 🤖 **AI Chat Engine** | Groq AI (llama-3.3-70b) — Primary model |
+| 📸 **Image Analysis** | Gemini AI with 10-key rotation |
+| 🔥 **Firebase Integration** | Real-time database & stock management |
+| 💳 **Payment Verification** | Auto-detect & verify payment screenshots |
+| 📱 **WhatsApp Web** | Full WhatsApp Web.js integration |
+| 🎯 **Smart Responses** | Intent detection & contextual replies |
+| 🛒 **Order Management** | Complete order lifecycle tracking |
+| 📊 **Admin Dashboard** | Real-time stats, QR system & controls |
 
-### Step 2: Install & Run
+---
+
+## 📋 Plans (Strict — Only These)
+
+| Plan | Data | Price | Validity | Delivery |
+|------|------|-------|----------|----------|
+| 📦 **STARTER** | 500MB | Rs 130 | 2 YEARS | 🤖 Auto |
+| 📦 **STANDARD** | 1GB | Rs 350 | 2 YEARS | 🤖 Auto |
+| 📦 **PRO** | 5GB | Rs 1,250 | 2 YEARS | 👤 Manual |
+
+---
+
+## 🏢 Business Information
+
+- **Name:** SimFly Pakistan
+- **Tagline:** Fly Free, Stay Connected
+- **WhatsApp:** +1 7826662232
+- **Email:** simflypakistan@gmail.com
+- **Website:** [simfly.lovable.app](https://simfly.lovable.app)
+- **Compatibility:** [simfly.lovable.app/compatible-devices](https://simfly.lovable.app/compatible-devices)
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js 18+
+- Git
+
+### Installation
 
 ```bash
+# Clone repository
+git clone https://github.com/hananabdull746/simfly-os.git
+cd simfly-os
+
+# Install dependencies
 npm install
+
+# Configure environment (see below)
+# Edit config.js or set environment variables
+
+# Start the bot
 npm start
 ```
 
-### Step 3: Scan QR Code
+---
 
-1. Open dashboard at `http://localhost:3000`
-2. Scan QR code with WhatsApp (Settings → Linked Devices)
-3. Bot is ready!
+## ⚙️ Configuration
 
-## Features
+### Environment Variables
 
-- ✅ **WhatsApp Bot** - Auto-reply to customer messages
-- ✅ **Smart Responses** - Keyword-based intelligent replies
-- ✅ **Order Tracking** - Track orders in local database
-- ✅ **Admin Dashboard** - Real-time stats and logs
-- ✅ **Payment Detection** - Auto-detect payment screenshots
-- ✅ **Local Database** - Auto-saves to JSON file
-- ✅ **No External Dependencies** - Works offline
+Create a `.env` file or set these in your hosting platform:
 
-## File Structure
+```bash
+# 🤖 Groq AI (Primary Chat Model)
+# Get API key from: https://console.groq.com
+GROQ_API_KEY=your_groq_api_key_here
 
+# 🔑 Gemini AI (10 keys for image analysis rotation)
+# Get API keys from: https://makersuite.google.com
+GEMINI_API_KEY_1=your_gemini_key_1
+GEMINI_API_KEY_2=your_gemini_key_2
+GEMINI_API_KEY_3=your_gemini_key_3
+GEMINI_API_KEY_4=your_gemini_key_4
+GEMINI_API_KEY_5=your_gemini_key_5
+GEMINI_API_KEY_6=your_gemini_key_6
+GEMINI_API_KEY_7=your_gemini_key_7
+GEMINI_API_KEY_8=your_gemini_key_8
+GEMINI_API_KEY_9=your_gemini_key_9
+GEMINI_API_KEY_10=your_gemini_key_10
+
+# 👤 Admin WhatsApp Number (with country code)
+ADMIN_NUMBER=923001234567
+
+# 🔥 Firebase Configuration
+FIREBASE_PROJECT_ID=your_project_id
+FIREBASE_CLIENT_EMAIL=your_service_account_email
+FIREBASE_PRIVATE_KEY=your_private_key
+FIREBASE_DATABASE_URL=https://your-project.firebaseio.com
+
+# 🌐 Application URL (for web dashboard)
+APP_URL=https://your-app.railway.app
 ```
-simfly-os/
-├── config.js          # ALL settings here (edit this!)
-├── index.js           # Main bot code
-├── data/              # Database folder
-│   └── database.json  # Local database
-├── package.json
-└── README.md
+
+---
+
+## 📱 Device Compatibility
+
+### ✅ Supported Devices
+
+- iPhone XS and above (XS, XR, 11, 12, 13, 14, 15, 16)
+- Samsung S20+
+- Pixel 3+
+- Fold/Flip devices
+
+### ❌ Not Supported
+
+- PTA-approved phones
+- Budget Android devices
+- iPhone X or below
+
+---
+
+## 💰 Payment Methods
+
+| Method | Number | Account Name |
+|--------|--------|--------------|
+| JazzCash | 03456754090 | SimFly Pakistan |
+| EasyPaisa | 03466544374 | SimFly Pakistan |
+| SadaPay | 03116400376 | SimFly Pakistan |
+
+---
+
+## 🤖 Admin Commands
+
+### Order Management
+```
+/confirm [number] [plan]    - Confirm an order
+/orders                      - List all orders
+/stock                       - Check current stock
 ```
 
-## Customization
+### Stock Management
+```
+/stock 500mb 50             - Update 500MB stock
+/stock 1gb 50               - Update 1GB stock
+/stock 5gb 50               - Update 5GB stock
+```
 
-### Change Bot Responses
+### Bot Control
+```
+/pause                       - Pause bot responses
+/resume                      - Resume bot responses
+/stop                        - Stop bot completely
+/status                      - Check bot status
+```
 
-Edit `config.js` line 148+:
+---
+
+## 🗄️ Firebase Collections
 
 ```javascript
-const KEYWORD_RESPONSES = {
-    greeting: {
-        keywords: ['hi', 'hello', 'assalam'],
-        responses: ['Your custom response here!']
-    },
-    // Add more...
-};
-```
+stock: {
+  "500mb": number,
+  "1gb": number,
+  "5gb": number
+}
 
-### Add FAQs
+orders: {
+  number: string,
+  plan: string,
+  amount: number,
+  status: string,
+  timestamp: number
+}
 
-Edit `config.js` line 79+:
+customers: {
+  number: string,
+  lastPlan: string,
+  totalOrders: number
+}
 
-```javascript
-faqs: {
-    'your keyword': 'Your answer here',
-    'another question': 'Another answer'
+bot_status: {
+  active: boolean,
+  paused: boolean
 }
 ```
 
-### Change Business Info
+---
 
-Edit `config.js` line 46-52:
+## 🌐 Railway Frontend (QR System)
 
-```javascript
-const BUSINESS = {
-    name: 'Your Business',
-    tagline: 'Your Tagline',
-    // ...
-};
-```
+The bot includes a web dashboard hosted on Railway:
 
-## API Endpoints
+- **QR Code:** Scan to connect WhatsApp
+- **Status:** Real-time bot status
+- **Auto Refresh:** Every 3-5 seconds
+
+---
+
+## 📝 API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Dashboard |
+| `/` | GET | Dashboard with QR code |
 | `/health` | GET | Health check |
-| `/api/status` | GET | Full status |
-| `/api/orders` | GET | List orders |
-| `/api/send` | POST | Send message |
+| `/api/status` | GET | Full system status |
+| `/api/orders` | GET | List all orders |
+| `/api/send` | POST | Send message via API |
 
-### Send Message via API
+### Send Message Example
 
 ```bash
-curl -X POST http://localhost:3000/api/send \
+curl -X POST https://your-app.railway.app/api/send \
   -H "Content-Type: application/json" \
-  -d '{"number":"923001234567","message":"Hello!"}'
+  -d '{
+    "number": "923001234567",
+    "message": "Assalam-o-Alaikum! SimFly Pakistan here."
+  }'
 ```
 
-## Deployment
+---
 
-### Railway
+## 🎤 Voice Message System
+
+When user sends voice message:
+
+1. 🎯 **Gemini** transcribes the audio
+2. 🧠 **Intent extraction** from transcription
+3. 💬 **Groq** generates reply
+4. 📱 Clean text reply sent to user
+
+> Note: No mention of AI/transcription to user — natural human-like flow.
+
+---
+
+## 🔄 Deployment
+
+### Railway (Recommended)
 
 ```bash
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Login and link
 railway login
 railway link
+
+# Deploy
 railway up
 ```
 
@@ -141,71 +268,127 @@ railway up
 
 1. Create Web Service
 2. Connect GitHub repo
-3. Build: `npm install`
-4. Start: `npm start`
+3. Set environment variables
+4. Build: `npm install`
+5. Start: `npm start`
 
-### Local/Server
+### Local Development
 
 ```bash
 npm install
 npm start
 ```
 
-## Database
+---
 
-All data saves to `data/database.json`:
+## 🧠 AI System Architecture
 
-```json
-{
-  "conversations": { ... },
-  "stats": { "totalMessages": 100, "totalOrders": 10 },
-  "users": { ... },
-  "orders": [ ... ]
-}
 ```
-
-- Auto-saves every 30 seconds
-- Persists between restarts
-- No external database needed
-
-## Bot Behavior
-
-1. Customer sends message
-2. Bot detects keywords in message
-3. Bot sends appropriate response
-4. If payment screenshot detected → Notify admin
-5. All conversations logged to database
-
-## Admin Features
-
-- **Dashboard**: View QR code, stats, logs
-- **Send Messages**: Send messages from dashboard
-- **Order Tracking**: View all orders at `/api/orders`
-- **Notifications**: Admin gets notified on startup and payments
-
-## Troubleshooting
-
-### Bot not responding
-- Check if `ADMIN_NUMBER` is set correctly
-- Check logs on dashboard
-- Restart: `npm start`
-
-### QR not scanning
-- Refresh page
-- Check phone internet
-- Try "Link Device" instead of "Link a Device"
-
-### Database not saving
-- Check `data/` folder exists
-- Check file permissions
-
-## Version History
-
-- **v7.0** - Config.js Edition (No .env, No Firebase)
-- v6.0 - Simple .env Edition
-- v5.2 - Firebase + Groq AI
-- v2.1 - Initial release
+┌─────────────────────────────────────────────┐
+│           SimFly OS v4.0                     │
+├─────────────────────────────────────────────┤
+│  Chat Engine: Groq (llama-3.3-70b)          │
+│  Media Processing: Gemini (10-key rotation) │
+│  Database: Firebase Realtime                │
+│  WhatsApp: whatsapp-web.js                  │
+└─────────────────────────────────────────────┘
+```
 
 ---
 
-**Built for SimFly Pakistan | Config.js Edition | v7.0**
+## 🎯 Response Intelligence
+
+**Before replying, the bot:**
+- Understands user intent
+- Analyzes previous context
+- Replies ONLY what is needed
+
+**Rules:**
+- ✅ Short but complete replies
+- ✅ Answer exactly what was asked
+- ✅ Ask follow-up only if needed
+- ❌ No long paragraphs
+- ❌ No multiple messages
+- ❌ No info dumps
+
+---
+
+## 📊 Stock System
+
+- ✅ Stock deducted on payment confirmation
+- ⛔ Order blocked if stock = 0
+- 🔔 Admin alerted if stock < 3
+
+---
+
+## 💸 Refund Rules
+
+### ✅ Allowed
+- eSIM not activated
+- Wrong delivery
+- System issue
+
+### ❌ Not Allowed
+- Already used
+- Wrong device
+- Data finished
+
+---
+
+## 🔐 Security Rules
+
+**Never reveal:**
+- Supplier information
+- Backend details
+- API endpoints
+- Admin number
+- AI system details
+
+---
+
+## 🧪 Testing Mode
+
+Set in `config.js`:
+```javascript
+TEST_BOARD: {
+  enabled: true,
+  whitelist: ['923001234567', '923001234568']
+}
+```
+
+---
+
+## 📈 Follow-Up System
+
+After 24 hours:
+```
+Aapka eSIM theek chal raha hai? 😊
+```
+
+---
+
+## 🆘 Support
+
+For issues or questions:
+- Email: simflypakistan@gmail.com
+- WhatsApp: +1 7826662232
+
+---
+
+## 📜 License
+
+MIT License — See [LICENSE](LICENSE) file
+
+---
+
+## 🙏 Credits
+
+**Built for SimFly Pakistan**  
+Version 4.0 (Final Production Build — July 2026)
+
+---
+
+<div align="center">
+  <h3>SimFly Pakistan</h3>
+  <p><em>Fly Free, Stay Connected 🇵🇰</em></p>
+</div>

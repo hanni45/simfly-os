@@ -1,6 +1,17 @@
 /**
- * SIMFLY OS v8.0 - FIREBASE + GROQ AI EDITION
- * Master Bot with Realtime Database
+ * ═══════════════════════════════════════════════════════
+ * SIMFLY OS v4.0 — MASTER PRODUCTION BUILD
+ * WhatsApp Sales Bot for SimFly Pakistan (eSIM Provider)
+ * July 2026 Release — Final Production Build
+ * ═══════════════════════════════════════════════════════
+ *
+ * 🤖 AI System:
+ *    • Primary Chat: Groq (llama-3.3-70b-versatile)
+ *    • Media Analysis: Gemini (10-key rotation)
+ *
+ * 🔥 Database: Firebase Realtime
+ * 📱 WhatsApp: whatsapp-web.js
+ * 🌐 Dashboard: Railway-hosted
  * ═══════════════════════════════════════════════════════
  */
 
@@ -3458,6 +3469,19 @@ async function handleAdminCommand(msg, chatId, body) {
         State.botPaused = true;
         State.pausedBy = chatId;
         State.pauseReason = args || 'Paused by admin';
+
+        // Clear all pending typing timers to cancel in-flight messages
+        if (global.typingTimers) {
+            const timerCount = Object.keys(global.typingTimers).length;
+            for (const chatId in global.typingTimers) {
+                clearTimeout(global.typingTimers[chatId]);
+                delete global.typingTimers[chatId];
+            }
+            if (timerCount > 0) {
+                log(`Cleared ${timerCount} pending message timer(s) due to pause`, 'admin');
+            }
+        }
+
         log(`Bot PAUSED by ${chatId}. Reason: ${State.pauseReason}`, 'admin');
         return `⏸️ *BOT PAUSED*\n\n👤 By: Admin\n📝 Reason: ${State.pauseReason}\n\n✅ Ab admin manually reply karega\n🤖 Auto-replies OFF hain\n\n▶️ Wapas start karne ke liye: !start`;
     }
@@ -4793,6 +4817,13 @@ async function startWhatsApp() {
                 return;
             }
 
+            // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users) - EARLY CHECK
+            if (State.botPaused && !isAdmin && !isTempAdmin) {
+                log(`Bot PAUSED - ignoring message from ${chatId}`, 'info');
+                // Silently ignore - admin will manually reply
+                return;
+            }
+
             // ════════════════════════════════════════════════════════════════════════════
             // 🌸 NATURAL CONVERSATION FLOW v2.0 (Non-rushed, Human-like)
             // ════════════════════════════════════════════════════════════════════════════
@@ -4827,6 +4858,11 @@ async function startWhatsApp() {
             // Set timer to process message after 4 seconds of no typing
             global.typingTimers[chatId] = setTimeout(async () => {
                 delete global.typingTimers[chatId];
+                // Double-check pause state before processing
+                if (State.botPaused && !isAdmin && !isTempAdmin) {
+                    log(`Bot PAUSED - skipping deferred message from ${chatId}`, 'info');
+                    return;
+                }
                 await processNaturalFlow(msg, chatId, body, userFlow, FLOW_STATES);
             }, 4000);
 
@@ -5183,14 +5219,6 @@ Payment ke baad screenshot bhejo, main verify kar lunga ✅`;
             // Feature 19: Track Abandoned Cart
             if (profile.purchaseStage === PURCHASE_STAGES.PLAN_VIEW && !profile.abandonedCartTime) {
                 profile.abandonedCartTime = Date.now();
-            }
-
-            // ⏸️ CHECK IF BOT IS PAUSED (for non-admin users)
-            const isPaused = State.botPaused;
-            if (isPaused && !isAdmin && !isTempAdmin) {
-                log(`Bot PAUSED - skipping auto-reply for ${chatId}`, 'info');
-                // Silently ignore - admin will manually reply
-                return;
             }
 
             // Check for post-purchase support commands

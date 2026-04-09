@@ -1,11 +1,12 @@
 {
   "name": "simfly-os",
-  "version": "8.1.0",
-  "description": "SimFly Pakistan WhatsApp Sales Bot - Firebase + Groq AI Master Bot with Payment Verification + 100+ Admin Commands",
+  "version": "4.0.0",
+  "description": "SimFly Pakistan WhatsApp Sales Bot - Production Build with Groq AI, Gemini Vision, Firebase Integration",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "test": "echo \"Tests not implemented yet\""
   },
   "keywords": [
     "whatsapp",
@@ -15,10 +16,20 @@
     "sales",
     "firebase",
     "groq",
-    "ai"
+    "gemini",
+    "ai",
+    "pakistan"
   ],
-  "author": "SimFly Pakistan",
+  "author": "SimFly Pakistan <simflypakistan@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hananabdull746/simfly-os.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hananabdull746/simfly-os/issues"
+  },
+  "homepage": "https://simfly.lovable.app",
   "dependencies": {
     "@sparticuz/chromium": "^119.0.0",
     "axios": "^1.7.0",
