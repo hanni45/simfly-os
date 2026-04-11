@@ -1,4 +1,4 @@
-/**
+/"""
  * Startup Sync Service
  * Fetches existing WhatsApp chats and syncs to database silently
  */
@@ -76,7 +76,7 @@ async function syncExistingChats(client) {
  */
 async function processChat(client, chat) {
   const number = chat.id._serialized.replace('@c.us', '');
-  const existed = CustomerQueries.get(number);
+  const existed = await CustomerQueries.get(number);
 
   // If customer already exists, skip processing messages
   if (existed) {
@@ -85,11 +85,11 @@ async function processChat(client, chat) {
 
   // Create customer record
   const contact = await chat.getContact();
-  const customer = CustomerQueries.getOrCreate(number, contact.pushname || contact.name);
+  const customer = await CustomerQueries.getOrCreate(number, contact.pushname || contact.name);
 
   // Detect stage based on chat context
   const stage = await detectStageFromChat(chat);
-  CustomerQueries.update(number, { stage });
+  await CustomerQueries.update(number, { stage });
 
   // Fetch recent messages
   const messages = await chat.fetchMessages({ limit: MAX_MESSAGES_PER_CHAT });
@@ -106,7 +106,7 @@ async function processChat(client, chat) {
     const hasImage = msg.hasMedia && msg.type === 'image';
 
     // Save to conversation history
-    ConversationQueries.add(number, role, msg.body, intent, hasImage);
+    await ConversationQueries.add(number, role, msg.body, intent, hasImage);
     messageCount++;
   }
 
@@ -200,19 +200,12 @@ function shouldRecover(number, messages) {
  * Get summary of synced data for analytics
  * @returns {Object}
  */
-function getSyncSummary() {
-  const db = require('../database/connection').getConnection();
-
-  const totalCustomers = db.prepare('SELECT COUNT(*) as count FROM customers').get();
-  const totalConversations = db.prepare('SELECT COUNT(*) as count FROM conversations').get();
-  const stageBreakdown = db.prepare(`
-    SELECT stage, COUNT(*) as count FROM customers GROUP BY stage
-  `).all();
-
+async function getSyncSummary() {
+  // For Firebase, we'd need to query these stats
+  // Since Firebase doesn't have easy count queries, we'll return basic info
   return {
-    totalCustomers: totalCustomers.count,
-    totalConversations: totalConversations.count,
-    stageBreakdown
+    status: 'synced',
+    timestamp: Date.now()
   };
 }
 

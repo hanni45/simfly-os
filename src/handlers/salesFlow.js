@@ -234,9 +234,9 @@ function checkCompatibility(text, customer) {
 /**
  * Start order flow
  */
-function startOrder(customer) {
+async function startOrder(customer) {
   // Check if already has pending order
-  const pending = OrderQueries.getPending(customer.number);
+  const pending = await OrderQueries.getPending(customer.number);
   if (pending) {
     return `Bhai aapka ek order already pending hai:\n` +
       `📦 ${pending.plan} - Rs ${pending.amount}\n` +
@@ -255,7 +255,7 @@ function startOrder(customer) {
 /**
  * Continue order flow from message
  */
-function continueFlow(text, intent, customer) {
+async function continueFlow(text, intent, customer) {
   const lower = text.toLowerCase().trim();
 
   // Detect plan selection
@@ -286,11 +286,9 @@ function continueFlow(text, intent, customer) {
   const plan = PLANS[selectedPlan];
 
   // Check stock
-  const stock = StockQueries.get(selectedPlan);
-  if (stock.quantity <= 0) {
+  const stock = await StockQueries.get(selectedPlan);
+  if (!stock || stock.quantity <= 0) {
     // Add to waitlist
-    const { FollowUpQueries } = require('../database/queries');
-    // (waitlist logic handled separately)
     return `Bhai ${plan.name} (${plan.data}) abhi stock mein nahi hai 😔\n\n` +
       `Main aapko notify kar dunga jab available ho.\n` +
       `Aur koi plan chalega?\n` +
@@ -300,10 +298,10 @@ function continueFlow(text, intent, customer) {
 
   // Create order
   const orderId = `SF${Date.now().toString(36).toUpperCase()}`;
-  OrderQueries.create(orderId, customer.number, selectedPlan, plan.price);
+  await OrderQueries.create(orderId, customer.number, selectedPlan, plan.price);
 
   // Update customer
-  CustomerQueries.update(customer.number, {
+  await CustomerQueries.update(customer.number, {
     stage: 'AWAITING_PAYMENT',
     plan_interest: selectedPlan,
     last_plan: selectedPlan
@@ -311,7 +309,7 @@ function continueFlow(text, intent, customer) {
 
   // Schedule payment reminder
   const reminderTime = Math.floor(Date.now() / 1000) + (45 * 60); // 45 mins
-  FollowUpQueries.schedule(
+  await FollowUpQueries.schedule(
     customer.number,
     'PAYMENT_PENDING',
     `Bhai ${plan.name} ka payment ho gaya? Screenshot bhejni thi 📸`,
@@ -344,7 +342,7 @@ async function deliverESIM(customer, order, plan) {
   // Auto-deliver for 500MB and 1GB
   if (plan.auto) {
     // Decrement stock
-    StockQueries.decrement(plan.id);
+    await StockQueries.decrement(plan.id);
 
     return `🎉 *Payment Verified!* ✅\n\n` +
       `${guide}\n\n` +
@@ -394,16 +392,16 @@ function buildActivationGuide(plan) {
 /**
  * Check if plan is available
  */
-function isPlanAvailable(planId) {
-  const stock = StockQueries.get(planId);
+async function isPlanAvailable(planId) {
+  const stock = await StockQueries.get(planId);
   return stock && stock.quantity > 0;
 }
 
 /**
  * Get stock status message
  */
-function getStockStatus() {
-  const stocks = StockQueries.getAll();
+async function getStockStatus() {
+  const stocks = await StockQueries.getAll();
   return stocks.map(s => {
     const plan = PLANS[s.plan];
     const status = s.quantity <= s.low_threshold ? '⚠️ LOW' : '✅ OK';

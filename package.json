@@ -24,17 +24,19 @@
     "pakistan",
     "groq",
     "gemini",
-    "sqlite"
+    "firebase"
   ],
   "author": "SimFly Pakistan <simflypakistan@gmail.com>",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0",
-    "better-sqlite3": "^9.4.0",
     "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "firebase-admin": "^12.0.0",
     "google-auth-library": "^9.0.0",
     "node-cron": "^3.0.3",
     "puppeteer-core": "^21.5.0",
+    "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.33.0",
     "whatsapp-web.js": "^1.23.0",

@@ -1,10 +1,10 @@
-/**
+/"""
  * Follow-up Scheduler
  * Lightweight cron-based scheduler for automated follow-ups
  */
 
 const cron = require('node-cron');
-const { FollowUpQueries, CustomerQueries, OrderQueries } = require('../database/queries');
+const { FollowUpQueries, CustomerQueries, OrderQueries, AnalyticsQueries, StockQueries } = require('../database/queries');
 
 let client = null;
 let isRunning = false;
@@ -42,7 +42,7 @@ async function processFollowUps() {
   if (!client) return;
 
   const now = Math.floor(Date.now() / 1000);
-  const pending = FollowUpQueries.getPending(now);
+  const pending = await FollowUpQueries.getPending(now);
 
   for (const followUp of pending) {
     try {
@@ -50,11 +50,10 @@ async function processFollowUps() {
       await client.sendMessage(followUp.number, followUp.message);
 
       // Mark as sent
-      FollowUpQueries.markSent(followUp.id);
+      await FollowUpQueries.markSent(followUp.id);
 
       // Update analytics
-      const { AnalyticsQueries } = require('../database/queries');
-      AnalyticsQueries.increment('followups_sent');
+      await AnalyticsQueries.increment('followups_sent');
 
       console.log(`📤 Follow-up sent to ${followUp.number}`);
 
@@ -71,10 +70,10 @@ async function processFollowUps() {
  * @param {string} number - Customer number
  * @param {string} plan - Plan name
  */
-function schedulePostDelivery(number, plan) {
+async function schedulePostDelivery(number, plan) {
   const deliveryTime = Math.floor(Date.now() / 1000) + (24 * 60 * 60); // 24 hours
 
-  FollowUpQueries.schedule(
+  await FollowUpQueries.schedule(
     number,
     'POST_DELIVERY',
     `Bhai ${plan} eSIM theek chal raha hai? 😊\n\nKoi issue ho toh batana — main check karke batata hoon 👍`,
@@ -86,13 +85,13 @@ function schedulePostDelivery(number, plan) {
  * Schedule abandoned cart recovery (2 hours after interest)
  * @param {string} number - Customer number
  */
-function scheduleAbandonedCart(number) {
+async function scheduleAbandonedCart(number) {
   // Cancel any existing abandoned cart for this customer
-  FollowUpQueries.cancelForCustomer(number, 'ABANDONED_CART');
+  await FollowUpQueries.cancelForCustomer(number, 'ABANDONED_CART');
 
   const reminderTime = Math.floor(Date.now() / 1000) + (2 * 60 * 60); // 2 hours
 
-  FollowUpQueries.schedule(
+  await FollowUpQueries.schedule(
     number,
     'ABANDONED_CART',
     `Bhai abhi bhi available hai — order karna tha na? 😊\n\nPlans:\n🟢 500MB - Rs 130\n🔵 1GB - Rs 350\n🟣 5GB - Rs 1,250`,
@@ -104,10 +103,10 @@ function scheduleAbandonedCart(number) {
  * Schedule recovery message (7 days after going silent)
  * @param {string} number - Customer number
  */
-function scheduleRecovery(number) {
+async function scheduleRecovery(number) {
   const recoveryTime = Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60); // 7 days
 
-  FollowUpQueries.schedule(
+  await FollowUpQueries.schedule(
     number,
     'RECOVERY',
     `Arey bhai! SimFly wala kaam karna tha? 😄\n\nAbhi bhi available hoon — kuch chahiye toh batao 👍`,
@@ -120,8 +119,7 @@ function scheduleRecovery(number) {
  */
 async function updateDailyAnalytics() {
   try {
-    const { AnalyticsQueries } = require('../database/queries');
-    const today = AnalyticsQueries.getToday();
+    const today = await AnalyticsQueries.getToday();
 
     // Log daily summary
     console.log(`📊 Daily Update - ${new Date().toDateString()}`);
@@ -138,8 +136,7 @@ async function updateDailyAnalytics() {
  */
 async function checkLowStock() {
   try {
-    const { StockQueries } = require('../database/queries');
-    const lowStock = StockQueries.getLowStock();
+    const lowStock = await StockQueries.getLowStock();
 
     if (lowStock.length > 0) {
       const adminNumber = process.env.ADMIN_NUMBER;

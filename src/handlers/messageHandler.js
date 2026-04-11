@@ -7,7 +7,7 @@ const ai = require('../services/ai');
 const vision = require('../services/vision');
 const salesFlow = require('./salesFlow');
 const adminCommands = require('./adminCommands');
-const { CustomerQueries, ConversationQueries, OrderQueries, StockQueries } = require('../database/queries');
+const { CustomerQueries, ConversationQueries, OrderQueries, StockQueries, PaymentQueries } = require('../database/queries');
 
 // ═══════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -49,7 +49,7 @@ async function handleMessage(message, client) {
   if (number.includes('@g.us')) return;
 
   // Get or create customer
-  const customer = CustomerQueries.getOrCreate(number, message.notifyName);
+  const customer = await CustomerQueries.getOrCreate(number, message.notifyName);
 
   // Check if banned
   if (customer.banned) return;
@@ -76,7 +76,7 @@ async function handleMessage(message, client) {
   const intent = await ai.detectIntent(text);
 
   // Log conversation
-  ConversationQueries.add(number, 'user', text, intent, false);
+  await ConversationQueries.add(number, 'user', text, intent, false);
 
   // Route based on intent and stage
   const response = await routeMessage(text, intent, customer);
@@ -84,7 +84,7 @@ async function handleMessage(message, client) {
   // Send response
   if (response) {
     await sendMessage(client, number, response);
-    ConversationQueries.add(number, 'bot', response, intent, false);
+    await ConversationQueries.add(number, 'bot', response, intent, false);
   }
 }
 
@@ -124,11 +124,11 @@ async function routeMessage(text, intent, customer) {
       return salesFlow.checkCompatibility(text, customer);
 
     case 'ORDER_READY':
-      CustomerQueries.updateStage(customer.number, STAGES.ORDERING);
+      await CustomerQueries.updateStage(customer.number, STAGES.ORDERING);
       return salesFlow.startOrder(customer);
 
     case 'SUPPORT':
-      CustomerQueries.updateStage(customer.number, STAGES.SUPPORT);
+      await CustomerQueries.updateStage(customer.number, STAGES.SUPPORT);
       return handleSupportQuery(text, customer);
 
     case 'REFUND_ASK':
@@ -140,7 +140,7 @@ async function routeMessage(text, intent, customer) {
     case 'RANDOM':
     default:
       // Try AI response if available
-      const history = ConversationQueries.getRecent(customer.number, 5);
+      const history = await ConversationQueries.getRecent(customer.number, 5);
       const aiResponse = await ai.generateResponse(text, history, {
         stage: customer.stage,
         plan: customer.plan_interest
@@ -168,7 +168,7 @@ async function handleImage(message, client, customer) {
     const imageBuffer = Buffer.from(media.data, 'base64');
 
     // Get pending order
-    const pendingOrder = OrderQueries.getPending(customer.number);
+    const pendingOrder = await OrderQueries.getPending(customer.number);
     if (!pendingOrder) {
       await sendMessage(client, message.from,
         'Bhai pehle plan select karo — konsa plan lena hai?\n\n1️⃣ 500MB - Rs 130\n2️⃣ 1GB - Rs 350\n3️⃣ 5GB - Rs 1,250');
@@ -182,8 +182,7 @@ async function handleImage(message, client, customer) {
     const analysis = await vision.analyzeScreenshot(imageBuffer, plan.price);
 
     // Check for duplicate
-    const { PaymentQueries } = require('../database/queries');
-    const existing = PaymentQueries.getByHash(analysis.hash);
+    const existing = await PaymentQueries.getByHash(analysis.hash);
     if (existing) {
       await sendMessage(client, message.from,
         'Bhai yeh screenshot pehle use ho chuki hai — fresh payment bhejo');
@@ -191,7 +190,7 @@ async function handleImage(message, client, customer) {
     }
 
     // Log payment attempt
-    PaymentQueries.log(customer.number, pendingOrder.order_id, analysis.hash, plan.price);
+    await PaymentQueries.log(customer.number, pendingOrder.order_id, analysis.hash, plan.price);
 
     // Verify payment
     const verification = vision.verifyPayment(analysis, plan.price, null);
@@ -202,22 +201,22 @@ async function handleImage(message, client, customer) {
     }
 
     // Payment verified!
-    PaymentQueries.verify(analysis.hash, analysis.amount, analysis.recipientNumber, analysis.status);
+    await PaymentQueries.verify(analysis.hash, analysis.amount, analysis.recipientNumber, analysis.status);
 
     // Confirm order
-    OrderQueries.confirm(pendingOrder.order_id, plan.code, 'eSIM Provider');
+    await OrderQueries.confirm(pendingOrder.order_id, plan.code, 'eSIM Provider');
 
     // Update customer
-    CustomerQueries.updateStage(customer.number, STAGES.PAYMENT_SENT);
+    await CustomerQueries.updateStage(customer.number, STAGES.PAYMENT_SENT);
 
     // Deliver eSIM
     const delivery = await salesFlow.deliverESIM(customer, pendingOrder, plan);
     await sendMessage(client, message.from, delivery);
 
     // Update to delivered
-    OrderQueries.deliver(pendingOrder.order_id);
-    CustomerQueries.incrementOrders(customer.number, plan.price);
-    CustomerQueries.updateStage(customer.number, STAGES.DELIVERED);
+    await OrderQueries.deliver(pendingOrder.order_id);
+    await CustomerQueries.incrementOrders(customer.number, plan.price);
+    await CustomerQueries.updateStage(customer.number, STAGES.DELIVERED);
 
   } catch (error) {
     console.error('Image handling error:', error);
@@ -256,8 +255,8 @@ function handleSupportQuery(text, customer) {
 /**
  * Handle refund requests
  */
-function handleRefundRequest(text, customer) {
-  const pendingOrder = OrderQueries.getPending(customer.number);
+async function handleRefundRequest(text, customer) {
+  const pendingOrder = await OrderQueries.getPending(customer.number);
 
   if (!pendingOrder) {
     return `Bhai refund ke liye order confirm hona chahiye.\n\nAapka koi pending order nahi dikh raha.\nNumber check karke batao: ${customer.number}`;
