@@ -10,6 +10,8 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const sharp = require('sharp');
 
+const { FollowUpQueries, StockQueries, AnalyticsQueries } = require('./database');
+
 // ═══════════════════════════════════════════════════════════════
 // LOGGER (Simple)
 // ═══════════════════════════════════════════════════════════════

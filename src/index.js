@@ -8,7 +8,7 @@ require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
-const { migrate, closeConnection, CustomerQueries, ConversationQueries, OrderQueries, StockQueries, PaymentQueries, AnalyticsQueries } = require('./database');
+const { migrate, closeConnection, getConnection, CustomerQueries, ConversationQueries, OrderQueries, StockQueries, FollowUpQueries, PaymentQueries, AnalyticsQueries } = require('./database');
 const { logger, generateResponse, detectIntent, detectIntentLocal, analyzeScreenshot, verifyPayment, initScheduler, setQR, clearQR, setStatus, startWebServer, syncExistingChats, logIssue, resolveIssue, getIssues, clearOldIssues } = require('./services');
 
 // ═══════════════════════════════════════════════════════════════
@@ -152,7 +152,7 @@ async function handleImage(message, client, customer) {
     await OrderQueries.confirm(pendingOrder.order_id, plan.code, 'eSIM Provider');
     await CustomerQueries.updateStage(customer.number, 'PAYMENT_SENT');
 
-    const delivery = await deliverESIM(customer, pendingOrder, plan);
+    const delivery = await deliverESIM(customer, pendingOrder, plan, pendingOrder.plan);
     await sendMessage(client, message.from, delivery);
 
     await OrderQueries.deliver(pendingOrder.order_id);
@@ -259,18 +259,17 @@ async function continueOrder(text, customer) {
   await OrderQueries.create(orderId, customer.number, selectedPlan, plan.price);
   await CustomerQueries.update(customer.number, { stage: 'AWAITING_PAYMENT', plan_interest: selectedPlan, last_plan: selectedPlan });
 
-  const { FollowUpQueries } = require('./database');
   const reminderTime = Math.floor(Date.now() / 1000) + (45 * 60);
   await FollowUpQueries.schedule(customer.number, 'PAYMENT_PENDING', `Bhai ${plan.name} ka payment ho gaya? Screenshot bhejni thi 📸`, reminderTime);
 
   return `✅ *${plan.name} Selected*\n\n📦 Plan: ${plan.data}\n💰 Amount: Rs ${plan.price}\n⏱️ Validity: ${plan.validity}\n\nPayment karo bhai:\n\n💚 JazzCash: ${PAYMENT_METHODS.jazzcash.number}\n💙 EasyPaisa: ${PAYMENT_METHODS.easypaisa.number}\n💜 SadaPay: ${PAYMENT_METHODS.sadapay.number}\n\n(Account: SimFly Pakistan)\n\nScreenshot bhejo yahan 📸`;
 }
 
-async function deliverESIM(customer, order, plan) {
+async function deliverESIM(customer, order, plan, planKey) {
   const guide = `━━━━━━━━━━━━━━━━━━━\n📱 *YOUR eSIM DETAILS*\n━━━━━━━━━━━━━━━━━━━\n📦 Plan: ${plan.name}\n📊 Data: ${plan.data}\n⏱️ Validity: ${plan.validity}\n${plan.devices > 1 ? `📱 Devices: ${plan.devices}\n` : ''}\n━━━━━━━━━━━━━━━━━━━\n🎁 *PROMO CODE*\n━━━━━━━━━━━━━━━━━━━\nCode: *${plan.code}*\n\n━━━━━━━━━━━━━━━━━━━\n📲 *ACTIVATION*\n━━━━━━━━━━━━━━━━━━━\n1️⃣ Settings → Mobile Data\n2️⃣ "Add eSIM" tap karo\n3️⃣ Enter code: *${plan.code}*\n4️⃣ Data Roaming ON ✅\n5️⃣ 1-2 minute wait\n\n⚠️ Data Roaming MUST be ON!`;
 
   if (plan.auto) {
-    await StockQueries.decrement(plan.id);
+    await StockQueries.decrement(planKey);
     return `🎉 *Payment Verified!* ✅\n\n${guide}\n\nKoi problem ho toh "support" likh ke bhejo 👍`;
   }
   return `🎉 *Payment Verified!* ✅\n\n5GB plan manual delivery hota hai bhai.\n\nAdmin ko notify kar diya hai — 5-10 minutes mein details mil jayengi 📧\n\nShukriya! 🙏`;
