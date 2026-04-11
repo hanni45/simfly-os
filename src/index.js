@@ -384,15 +384,14 @@ migrate().then(() => {
 });
 
 async function initializeBot() {
-  const chromium = require('@sparticuz/chromium');
-  const chromePath = await chromium.executablePath();
+  const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
 
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: './data/session' }),
     puppeteer: {
-      headless: chromium.headless,
+      headless: true,
       executablePath: chromePath,
-      args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--no-zygote']
     }
   });
 
