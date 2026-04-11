@@ -1,4 +1,4 @@
-/"""
+/**
  * Sales Flow Engine
  * Complete sales funnel with state management
  */

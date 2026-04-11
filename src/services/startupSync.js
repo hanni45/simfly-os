@@ -1,4 +1,4 @@
-/"""
+/**
  * Startup Sync Service
  * Fetches existing WhatsApp chats and syncs to database silently
  */

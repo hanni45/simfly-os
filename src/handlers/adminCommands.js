@@ -1,4 +1,4 @@
-/"""
+/**
  * Admin Commands System
  * Full control interface for admin
  */

@@ -1,4 +1,4 @@
-/"""
+/**
  * Web Server
  * Serves QR code and status dashboard for Railway deployment
  */
