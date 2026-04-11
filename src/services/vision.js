@@ -1,4 +1,4 @@
-/"
+/**
  * Vision Service - Gemini Integration for Payment Screenshots
  * Memory-optimized with key rotation
  */
