@@ -384,7 +384,8 @@ migrate().then(() => {
 });
 
 async function initializeBot() {
-  const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+  const puppeteer = require('puppeteer');
+  const chromePath = puppeteer.executablePath();
 
   const client = new Client({
     authStrategy: new LocalAuth({ dataPath: './data/session' }),
