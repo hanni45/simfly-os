@@ -1,43 +1,47 @@
 {
   "name": "simfly-os",
-  "version": "4.0.0",
-  "description": "SimFly Pakistan WhatsApp Sales Bot - Production Build with Groq AI, Gemini Vision, Firebase Integration",
-  "main": "index.js",
+  "version": "5.0.0",
+  "description": "SimFly Pakistan WhatsApp Sales & Support Bot - Memory Optimized Production Build",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js",
-    "test": "echo \"Tests not implemented yet\""
+    "start": "node src/index.js",
+    "dev": "node --inspect src/index.js",
+    "db:init": "node scripts/init-db.js",
+    "db:migrate": "node scripts/migrate.js",
+    "backup": "node scripts/backup.js",
+    "stats": "node scripts/stats.js",
+    "test": "node --test tests/**/*.test.js",
+    "lint": "eslint src/",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop ecosystem.config.js",
+    "pm2:logs": "pm2 logs simfly-os"
   },
   "keywords": [
     "whatsapp",
     "bot",
-    "simfly",
     "esim",
     "sales",
-    "firebase",
+    "pakistan",
     "groq",
     "gemini",
-    "ai",
-    "pakistan"
+    "sqlite"
   ],
   "author": "SimFly Pakistan <simflypakistan@gmail.com>",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/hananabdull746/simfly-os.git"
-  },
-  "bugs": {
-    "url": "https://github.com/hananabdull746/simfly-os/issues"
-  },
-  "homepage": "https://simfly.lovable.app",
   "dependencies": {
-    "@sparticuz/chromium": "^119.0.0",
-    "axios": "^1.7.0",
-    "express": "^4.21.2",
-    "firebase-admin": "^12.0.0",
-    "puppeteer-core": "^21.0.0",
+    "axios": "^1.6.0",
+    "better-sqlite3": "^9.4.0",
+    "dotenv": "^16.3.1",
+    "google-auth-library": "^9.0.0",
+    "node-cron": "^3.0.3",
+    "puppeteer-core": "^21.5.0",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.26.1"
+    "sharp": "^0.33.0",
+    "whatsapp-web.js": "^1.23.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.54.0"
   },
   "engines": {
     "node": ">=18.0.0"
