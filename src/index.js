@@ -14,11 +14,16 @@ const PAYMENT_METHODS = {
   sadapay: { number: '03116400376', name: 'SadaPay' }
 };
 
-sv.logger.info('Starting SimFly OS v5.0...');
+console.log(`${'\x1b[35m'}╔═══════════════════════════════════════════════════╗${'\x1b[0m'}`);
+console.log(`${'\x1b[35m'}║${'\x1b[0m'}${'\x1b[1m'}      🤖 SimFly OS v5.0 - WhatsApp Bot 🤖${'\x1b[0m'}${'\x1b[35m'}      ║${'\x1b[0m'}`);
+console.log(`${'\x1b[35m'}╚═══════════════════════════════════════════════════╝${'\x1b[0m'}\n`);
+
 sv.setStatus('INITIALIZING');
 
-db.migrate().then(() => sv.logger.info('Database ready')).catch(err => {
-  sv.logger.error('Database failed', { error: err.message });
+sv.logger.info('🚀 Initializing SimFly OS v5.0...');
+
+db.migrate().then(() => sv.logger.success('✅ Database connected and migrated')).catch(err => {
+  sv.logger.error('❌ Database connection failed', { error: err.message });
   process.exit(1);
 });
 
@@ -40,39 +45,49 @@ const client = new Client({
 });
 
 client.on('qr', (qr) => {
-  sv.logger.info('QR received');
+  sv.logger.bot('📱 QR code generated - Scan with WhatsApp');
   sv.setQR(qr);
+  sv.setStatus('QR_READY');
 });
 
 client.on('authenticated', () => {
-  sv.logger.info('Authenticated');
+  sv.logger.success('🔐 WhatsApp authenticated');
   sv.clearQR();
   sv.setStatus('AUTHENTICATED');
 });
 
 client.on('ready', () => {
-  sv.logger.info('Bot ready!');
+  sv.logger.success('✅ SimFly OS is ready and listening!');
   sv.setStatus('READY');
   sv.initScheduler(client);
 });
 
-client.on('message', async (message) => {
+client.on('message_create', async (message) => {
   try {
+    if (message.fromMe) return;
+
     const number = message.from;
     const text = message.body?.trim() || '';
 
     if (number.includes('@g.us')) return;
 
+    sv.logger.bot(`📩 Message from ${number.split('@')[0]}: ${text.slice(0, 30)}${text.length > 30 ? '...' : ''}`);
+
     const customer = await db.CustomerQueries.getOrCreate(number, message.notifyName);
-    if (customer.banned) return;
+    if (customer.banned) {
+      sv.logger.warn(`⛔ Blocked message from banned user: ${number}`);
+      return;
+    }
 
     if (text.startsWith('/') && isAdmin(number)) {
+      sv.logger.bot(`🔧 Admin command: ${text}`);
       const response = await handleAdminCommand(text);
       if (response) await client.sendMessage(number, response);
       return;
     }
 
     if (message.hasMedia) {
+      sv.logger.bot(`🖼️  Image received from ${number.split('@')[0]}`);
       await handleImage(message, customer);
       return;
     }
@@ -85,14 +100,15 @@ client.on('message', async (message) => {
     if (response) {
       await client.sendMessage(number, response);
       await db.ConversationQueries.add(number, 'bot', response, intent, false);
+      sv.logger.bot(`📤 Reply sent to ${number.split('@')[0]}`);
     }
   } catch (err) {
-    sv.logger.error('Message error', { error: err.message });
+    sv.logger.error('Message handling error', { error: err.message });
   }
 });
 
-client.on('disconnected', () => {
-  sv.logger.warn('Disconnected');
+client.on('disconnected', (reason) => {
+  sv.logger.warn('⚠️  WhatsApp disconnected', { reason });
   sv.setStatus('DISCONNECTED');
 });
 
@@ -327,9 +343,11 @@ function isAdmin(number) {
 
 sv.startWebServer();
 
+sv.logger.info('⏳ Waiting 3 seconds before WhatsApp initialization...');
 setTimeout(() => {
+  sv.logger.info('🔄 Starting WhatsApp client...');
   client.initialize().catch(err => {
-    sv.logger.error('Init failed', { error: err.message });
+    sv.logger.error('💥 Initialization failed', { error: err.message });
     process.exit(1);
   });
 }, 3000);

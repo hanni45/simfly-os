@@ -2,10 +2,26 @@ const express = require('express');
 const QRCode = require('qrcode');
 const db = require('./database');
 
+const COLORS = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m'
+};
+
 const logger = {
-  error: (msg, meta = {}) => console.log(`[${new Date().toISOString()}] ERROR: ${msg}`, meta),
-  warn: (msg, meta = {}) => console.log(`[${new Date().toISOString()}] WARN: ${msg}`, meta),
-  info: (msg, meta = {}) => console.log(`[${new Date().toISOString()}] INFO: ${msg}`, meta)
+  error: (msg, meta = {}) => console.log(`${COLORS.red}✖ ERROR${COLORS.reset} ${COLORS.dim}${new Date().toLocaleTimeString()}${COLORS.reset} ${msg}`, Object.keys(meta).length ? meta : ''),
+  warn: (msg, meta = {}) => console.log(`${COLORS.yellow}⚠ WARN${COLORS.reset} ${COLORS.dim}${new Date().toLocaleTimeString()}${COLORS.reset} ${msg}`, Object.keys(meta).length ? meta : ''),
+  info: (msg, meta = {}) => console.log(`${COLORS.cyan}ℹ INFO${COLORS.reset} ${COLORS.dim}${new Date().toLocaleTimeString()}${COLORS.reset} ${msg}`, Object.keys(meta).length ? meta : ''),
+  success: (msg, meta = {}) => console.log(`${COLORS.green}✔ SUCCESS${COLORS.reset} ${COLORS.dim}${new Date().toLocaleTimeString()}${COLORS.reset} ${msg}`, Object.keys(meta).length ? meta : ''),
+  bot: (msg) => console.log(`${COLORS.magenta}🤖 BOT${COLORS.reset} ${COLORS.dim}${new Date().toLocaleTimeString()}${COLORS.reset} ${msg}`),
+  db: (msg) => console.log(`${COLORS.blue}🗄️  DB${COLORS.reset} ${COLORS.dim}${new Date().toLocaleTimeString()}${COLORS.reset} ${msg}`),
+  http: (msg) => console.log(`${COLORS.green}🌐 HTTP${COLORS.reset} ${COLORS.dim}${new Date().toLocaleTimeString()}${COLORS.reset} ${msg}`)
 };
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -114,7 +130,7 @@ function initScheduler(client) {
   whatsappClient = client;
   setInterval(processFollowUps, 5 * 60 * 1000);
   setInterval(checkLowStock, 60 * 60 * 1000);
-  logger.info('Scheduler started');
+  logger.success('⏰ Scheduler initialized (follow-ups: 5min, stock check: 1hr)');
 }
 
 async function processFollowUps() {
@@ -159,8 +175,8 @@ function startWebServer() {
     const qrDataUrl = currentQR ? await QRCode.toDataURL(currentQR, { width: 200 }).catch(() => null) : null;
     res.send(generateHTML(qrDataUrl, botStatus));
   });
-  app.get('/health', (req, res) => res.json({ status: 'ok' }));
-  app.listen(PORT, () => logger.info(`Web server on ${PORT}`));
+  app.get('/health', (req, res) => res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() }));
+  app.listen(PORT, () => logger.http(`🌐 Dashboard running on port ${PORT}`));
 }
 
 const issues = [];
