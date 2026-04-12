@@ -1,0 +1,13 @@
+[phases.setup]
+nixPkgs = ['nodejs_18']
+aptPkgs = ['chromium', 'chromium-driver', 'fonts-liberation']
+
+[phases.build]
+cmds = ['npm install']
+
+[start]
+cmd = 'node src/index.js'
+
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
+PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium'
