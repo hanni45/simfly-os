@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const db = require('./database');
 const sv = require('./services');
